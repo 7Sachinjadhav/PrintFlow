@@ -13,6 +13,9 @@ import {
   ExternalLink,
   Copy,
   Check,
+  Lock,
+  Receipt,
+  HelpCircle,
 } from 'lucide-react';
 import { CustomerHeader } from '../../components/CustomerHeader';
 import { StepIndicator } from '../../components/StepIndicator';
@@ -42,9 +45,11 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const navigate = useNavigate();
   const [processing, setProcessing] = useState(false);
   const [createdOrder, setCreatedOrder] = useState<{ orderId: string; tokenNumber: string } | null>(null);
+  const [utrNumber, setUtrNumber] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copiedUpi, setCopiedUpi] = useState(false);
   const [activeTab, setActiveTab] = useState<'APP' | 'QR'>('APP');
+  const [showUtrHelp, setShowUtrHelp] = useState(false);
 
   useEffect(() => {
     if (files.length === 0 && !createdOrder) {
@@ -69,7 +74,6 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     }, 0);
   }, [files, priceCalculation]);
 
-  // Construct UPI deep links with exact amount and note
   const getUpiUrl = (appScheme: string = 'upi') => {
     const token = createdOrder?.tokenNumber || 'PRINT';
     const amountStr = totalPayable.toFixed(2);
@@ -98,7 +102,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
-  // Ensure order is created on server first, then redirect to UPI App
+  // Launch PhonePe / GPay app
   const triggerAppPayment = async (app: 'phonepe' | 'gpay' | 'paytm' | 'upi') => {
     setProcessing(true);
     setErrorMsg(null);
@@ -131,8 +135,6 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
       }
 
       const upiLink = getUpiUrl(app);
-
-      // Trigger UPI app redirection on mobile device
       window.location.href = upiLink;
     } catch (err: any) {
       console.error('Order creation error:', err);
@@ -142,8 +144,14 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     }
   };
 
-  // Finalize order after payment in UPI app
-  const handleConfirmPaid = async () => {
+  // Verify Real Payment with 12-digit UTR
+  const handleVerifyUtr = async () => {
+    const cleanUtr = utrNumber.trim().replace(/\s+/g, '');
+    if (cleanUtr.length < 12) {
+      setErrorMsg('Please enter the full 12-digit UPI Reference / UTR Number from your payment receipt.');
+      return;
+    }
+
     setProcessing(true);
     setErrorMsg(null);
 
@@ -151,7 +159,6 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
       let orderId = createdOrder?.orderId;
 
       if (!orderId) {
-        // Create order if not already created
         const orderPayload = {
           customer: {
             name: customerName || 'Walk-in Customer',
@@ -168,13 +175,14 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           notes: orderNotes || undefined,
         };
         const res = await api.createOrder(orderPayload);
-        orderId = res.orderId;
+        orderId = String(res.orderId);
       }
 
-      // Mark payment as verified
-      await api.simulateTestPayment({
+      // Verify 12-digit UTR with backend (checks anti-duplicate fraud)
+      await api.submitUtrPayment({
         orderId,
-        paymentMethod: 'PhonePe / GPay UPI',
+        utrNumber: cleanUtr,
+        upiApp: 'PhonePe / GPay',
       });
 
       // Clear uploaded files from state
@@ -183,8 +191,8 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
       // Navigate to Token Success Screen
       navigate(`/token/${orderId}`);
     } catch (err: any) {
-      console.error('Payment confirmation error:', err);
-      setErrorMsg(err.message || 'Could not confirm payment. Please try again.');
+      console.error('UTR verification error:', err);
+      setErrorMsg(err.message || 'UTR verification failed. Please ensure the 12-digit number is correct.');
       setProcessing(false);
     }
   };
@@ -193,15 +201,17 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     return null;
   }
 
+  const isUtrValid = utrNumber.trim().replace(/\s+/g, '').length >= 12;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <CustomerHeader />
       <StepIndicator currentStep={4} />
 
       <main className="flex-1 max-w-xl mx-auto w-full px-4 py-5 space-y-4">
-        <div className="text-center sm:text-left">
-          <h1 className="text-xl font-black text-slate-900">Pay via PhonePe / GPay</h1>
-          <p className="text-xs text-slate-500">Scan QR or tap your UPI app to pay directly to shop</p>
+        <div>
+          <h1 className="text-xl font-black text-slate-900">Pay & Verify Order</h1>
+          <p className="text-xs text-slate-500">Pay to Xerox shop UPI and enter your 12-digit UTR to get your token</p>
         </div>
 
         {errorMsg && (
@@ -211,18 +221,18 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           </div>
         )}
 
-        {/* Amount Summary Card */}
-        <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-2xl p-5 text-white shadow-lg space-y-3">
+        {/* Bill Summary Banner */}
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 text-white shadow-lg space-y-3">
           <div className="flex justify-between items-center text-xs text-indigo-200">
-            <span>Payee: <strong className="text-white">{UPI_NAME}</strong></span>
-            <span className="bg-indigo-700/60 px-2 py-0.5 rounded-full font-mono text-[11px]">
-              {createdOrder?.tokenNumber ? `Token: ${createdOrder.tokenNumber}` : 'New Order'}
+            <span>Shop Account: <strong className="text-white">{UPI_NAME}</strong></span>
+            <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
+              <Lock className="w-3 h-3" /> Fraud Protected
             </span>
           </div>
 
           <div className="flex justify-between items-baseline">
             <div>
-              <div className="text-[11px] text-indigo-300 uppercase tracking-wider font-semibold">Total Amount</div>
+              <div className="text-[11px] text-indigo-300 uppercase tracking-wider font-semibold">Total Payable</div>
               <div className="text-3xl font-black tracking-tight text-white">₹{totalPayable.toFixed(2)}</div>
             </div>
             <div className="text-right">
@@ -251,7 +261,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
             }`}
           >
             <Smartphone className="w-4 h-4" />
-            <span>Pay with UPI Apps</span>
+            <span>Step 1: Pay with App</span>
           </button>
           <button
             type="button"
@@ -263,18 +273,17 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
             }`}
           >
             <QrCode className="w-4 h-4" />
-            <span>Scan QR Code</span>
+            <span>Step 1: Scan QR</span>
           </button>
         </div>
 
-        {/* TAB 1: 1-Tap Mobile UPI App Buttons */}
+        {/* Step 1A: 1-Tap Mobile UPI App Buttons */}
         {activeTab === 'APP' && (
           <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Tap your preferred UPI app:
+              Step 1: Open UPI App & Pay ₹{totalPayable.toFixed(2)}
             </div>
 
-            {/* PhonePe Button */}
             <button
               type="button"
               disabled={processing}
@@ -287,7 +296,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                 </div>
                 <div className="text-left">
                   <div className="text-xs font-bold text-slate-900">PhonePe</div>
-                  <div className="text-[11px] text-slate-500">Pay directly with PhonePe app</div>
+                  <div className="text-[11px] text-slate-500">Auto-fills ₹{totalPayable.toFixed(2)} to {UPI_NAME}</div>
                 </div>
               </div>
               <span className="text-xs font-bold text-[#5f259f] flex items-center gap-1 group-hover:translate-x-0.5 transition">
@@ -295,7 +304,6 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
               </span>
             </button>
 
-            {/* Google Pay Button */}
             <button
               type="button"
               disabled={processing}
@@ -308,7 +316,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                 </div>
                 <div className="text-left">
                   <div className="text-xs font-bold text-slate-900">Google Pay (GPay)</div>
-                  <div className="text-[11px] text-slate-500">Instant UPI payment on Google Pay</div>
+                  <div className="text-[11px] text-slate-500">Auto-fills ₹{totalPayable.toFixed(2)} to {UPI_NAME}</div>
                 </div>
               </div>
               <span className="text-xs font-bold text-blue-600 flex items-center gap-1 group-hover:translate-x-0.5 transition">
@@ -316,7 +324,6 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
               </span>
             </button>
 
-            {/* Paytm / Default UPI Button */}
             <button
               type="button"
               disabled={processing}
@@ -328,7 +335,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                   <QrCode className="w-5 h-5" />
                 </div>
                 <div className="text-left">
-                  <div className="text-xs font-bold text-slate-900">Paytm / Cred / Any UPI App</div>
+                  <div className="text-xs font-bold text-slate-900">Paytm / Cred / Other UPI</div>
                   <div className="text-[11px] text-slate-500">Choose any installed UPI app</div>
                 </div>
               </div>
@@ -339,24 +346,23 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           </div>
         )}
 
-        {/* TAB 2: PhonePe QR Scanner for Desktop/PC or scanning with another phone */}
+        {/* Step 1B: Scan QR Code */}
         {activeTab === 'QR' && (
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm text-center space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-purple-50 border border-purple-200 text-[#5f259f] rounded-full text-xs font-bold">
               <span>PhonePe • GPay • Paytm Accepted</span>
             </div>
 
-            {/* QR Image with exact amount */}
             <div className="flex flex-col items-center justify-center py-2">
               <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-indigo-200 shadow-md inline-block">
                 <img
                   src={dynamicQrUrl}
                   alt="Scan to Pay UPI QR"
-                  className="w-56 h-56 object-contain rounded-lg"
+                  className="w-52 h-52 object-contain rounded-lg"
                 />
               </div>
               <div className="mt-3 text-xs font-bold text-slate-800">
-                Scan with any UPI App camera to pay <span className="text-indigo-600 font-black">₹{totalPayable.toFixed(2)}</span>
+                Scan with any UPI App to pay <span className="text-indigo-600 font-black">₹{totalPayable.toFixed(2)}</span>
               </div>
               <div className="text-[11px] text-slate-400 font-mono mt-0.5">
                 VPA: {UPI_ID} ({UPI_NAME})
@@ -365,42 +371,95 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           </div>
         )}
 
-        {/* Confirmation Step: Once paid in app, click to get token */}
-        <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4 space-y-3">
-          <div className="flex items-start gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs font-bold text-emerald-900">After completing payment in PhonePe / GPay:</div>
-              <div className="text-[11px] text-emerald-700 mt-0.5">
-                Click the button below to generate your Xerox Print Token and queue your documents!
+        {/* STEP 2: MANDATORY 12-DIGIT UTR VERIFICATION (NO FAKE BYPASS) */}
+        <div className="bg-white rounded-2xl p-5 border-2 border-indigo-500 shadow-md space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-black flex items-center justify-center">
+                2
               </div>
+              <div className="text-xs font-black uppercase tracking-wider text-slate-900">
+                Enter 12-Digit UPI Reference / UTR
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowUtrHelp(!showUtrHelp)}
+              className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+              <span>Where is UTR?</span>
+            </button>
+          </div>
+
+          {showUtrHelp && (
+            <div className="p-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-[11px] text-indigo-900 space-y-1">
+              <p className="font-bold">📱 How to find your 12-digit UTR:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-indigo-800">
+                <li><strong>PhonePe:</strong> Open payment receipt → look for <em>"UTR"</em> or <em>"Debited from"</em> 12-digit number (e.g. <code>432190876543</code>).</li>
+                <li><strong>Google Pay:</strong> Tap transaction → copy the 12-digit <em>"UPI transaction ID"</em>.</li>
+                <li><strong>Paytm:</strong> Tap transaction → copy the 12-digit <em>"UPI Ref No"</em>.</li>
+              </ul>
+            </div>
+          )}
+
+          <div>
+            <label className="text-[11px] font-bold text-slate-700 block mb-1.5">
+              12-Digit UPI Transaction ID / UTR Number: <span className="text-rose-500">*</span>
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                maxLength={16}
+                value={utrNumber}
+                onChange={(e) => setUtrNumber(e.target.value)}
+                placeholder="e.g. 432109876543"
+                className="w-full text-sm font-mono tracking-wider px-3.5 py-3 bg-slate-50 border-2 border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 transition"
+              />
+              {isUtrValid && (
+                <div className="absolute right-3 top-3 text-emerald-600">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
+              <span>Required to verify bank credit before printing</span>
+              <span className={isUtrValid ? 'text-emerald-600 font-bold' : 'text-slate-400'}>
+                {utrNumber.trim().replace(/\s+/g, '').length}/12 digits
+              </span>
             </div>
           </div>
 
+          {/* Secure Verification Action Button */}
           <button
             type="button"
-            disabled={processing}
-            onClick={handleConfirmPaid}
-            className="w-full py-3.5 px-5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition disabled:bg-emerald-400"
+            disabled={!isUtrValid || processing}
+            onClick={handleVerifyUtr}
+            className="w-full py-3.5 px-5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 transition disabled:bg-slate-300 disabled:shadow-none disabled:cursor-not-allowed"
           >
             {processing ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Confirming Order & Generating Token...</span>
+                <span>Verifying UTR & Generating Print Token...</span>
+              </>
+            ) : isUtrValid ? (
+              <>
+                <Zap className="w-4 h-4 text-amber-300" />
+                <span>Verify Payment & Generate Token (₹{totalPayable.toFixed(2)})</span>
               </>
             ) : (
               <>
-                <Zap className="w-4 h-4 text-amber-300" />
-                <span>I Have Paid ₹{totalPayable.toFixed(2)} → Get Print Token</span>
+                <Lock className="w-4 h-4 text-slate-400" />
+                <span>Enter 12-Digit UTR to Unlock Print Token</span>
               </>
             )}
           </button>
         </div>
 
-        {/* Security badge */}
+        {/* Security Assurance */}
         <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-center gap-2 text-xs text-slate-500">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Direct UPI transfer to Sachin S Jadhav ({UPI_ID}) • 100% Secure</span>
+          <span>Payment verified directly with Xerox counter • Zero false orders</span>
         </div>
       </main>
     </div>

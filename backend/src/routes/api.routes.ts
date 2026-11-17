@@ -36,6 +36,7 @@ router.get('/orders/track/:tokenOrId', OrderController.trackByTokenOrId);
 
 // Payments
 router.post('/payments/verify', PaymentController.verifyPayment);
+router.post('/payments/submit-utr', PaymentController.submitUtrPayment);
 router.post('/payments/simulate-test', PaymentController.simulateTestPayment);
 router.post('/payments/webhook', PaymentController.handleWebhook);
 

@@ -55,6 +55,8 @@ export const api = {
   getOrderStatus: (id: string) => request<any>(`/orders/${id}/status`),
   trackOrder: (tokenOrId: string) => request<any>(`/orders/track/${encodeURIComponent(tokenOrId)}`),
   verifyPayment: (payload: any) => request<any>('/payments/verify', { method: 'POST', body: JSON.stringify(payload) }),
+  submitUtrPayment: (payload: { orderId: string; utrNumber: string; upiApp?: string }) =>
+    request<any>('/payments/submit-utr', { method: 'POST', body: JSON.stringify(payload) }),
   simulateTestPayment: (payload: any) => request<any>('/payments/simulate-test', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Admin Auth

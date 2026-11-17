@@ -133,6 +133,101 @@ export class PaymentController {
   }
 
   /**
+   * Submit Real PhonePe/GPay UPI 12-digit UTR for Verification
+   */
+  static async submitUtrPayment(req: Request, res: Response): Promise<void> {
+    try {
+      const { orderId, utrNumber, upiApp } = req.body;
+
+      if (!orderId || !utrNumber) {
+        res.status(400).json({ success: false, error: 'Order ID and 12-digit UPI UTR are required.' });
+        return;
+      }
+
+      const cleanUtr = String(utrNumber).trim().replace(/\s+/g, '');
+
+      if (cleanUtr.length < 12) {
+        res.status(400).json({
+          success: false,
+          error: 'Please enter a valid 12-digit UPI Reference / UTR Number from your PhonePe/GPay receipt.'
+        });
+        return;
+      }
+
+      // Check if UTR was already used on another order to prevent fraud
+      const existing = await prisma.payment.findFirst({
+        where: {
+          razorpayPaymentId: `utr_${cleanUtr}`,
+          status: 'SUCCESS',
+        },
+      });
+
+      if (existing && existing.orderId !== orderId) {
+        res.status(400).json({
+          success: false,
+          error: 'This UPI Transaction ID / UTR has already been submitted for another order.'
+        });
+        return;
+      }
+
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (!order) {
+        res.status(404).json({ success: false, error: 'Order not found.' });
+        return;
+      }
+
+      // Record UTR payment
+      await PaymentService.handlePaymentSuccess({
+        orderId,
+        razorpayOrderId: `order_upi_${cleanUtr}`,
+        razorpayPaymentId: `utr_${cleanUtr}`,
+        paymentMethod: upiApp || 'PhonePe / GPay UPI',
+      });
+
+      // Update order notes with UTR
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          notes: order.notes ? `${order.notes} | UPI UTR: ${cleanUtr}` : `UPI UTR: ${cleanUtr}`,
+        },
+      });
+
+      // Enqueue job for Xerox printer
+      await QueueService.enqueueOrderJobs(orderId);
+
+      const io = getSocketServer();
+      if (io) {
+        io.to(`order_${orderId}`).emit('order_status_updated', {
+          orderId,
+          status: 'QUEUED',
+          tokenNumber: order.tokenNumber,
+          utrNumber: cleanUtr,
+        });
+
+        io.to(`shop_${order.shopId}`).emit('new_queue_job', {
+          orderId,
+          tokenNumber: order.tokenNumber,
+          utrNumber: cleanUtr,
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          orderId,
+          tokenNumber: order.tokenNumber,
+          status: 'QUEUED',
+          utrNumber: cleanUtr,
+          message: 'Payment verified with UPI UTR. Token enqueued for printing.',
+        },
+      });
+    } catch (err: any) {
+      console.error('UTR submission error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
    * Webhook Endpoint for Razorpay Server-to-Server callbacks
    */
   static async handleWebhook(req: Request, res: Response): Promise<void> {
