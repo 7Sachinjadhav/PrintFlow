@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# SQLite and Local DBs
+*.db
+*.db-journal
+backend/dev.db*
+backend/prisma/dev.db*
+
+# Uploaded Files & Temporary Storage
+backend/storage/*
+!backend/storage/.gitkeep
+print-agent/downloads/*
+!print-agent/downloads/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.venv
+env/
+venv/
+ENV/
+
+# Build outputs
+dist/
+*/dist/
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

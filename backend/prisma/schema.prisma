@@ -1,0 +1,360 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Shop {
+  id                String       @id @default(uuid())
+  name              String
+  slug              String       @unique
+  logoUrl           String?
+  address           String?
+  phone             String?
+  email             String?
+  workingHours      String?
+  isOpen            Boolean      @default(true)
+  qrCodeUrl         String?
+  maxUploadSizeBytes Int         @default(26214400) // 25 MB default
+  maxPageCount      Int          @default(500)
+  supportedFormats  String       @default("pdf,jpg,jpeg,png")
+  retentionDays     Int          @default(7)
+  autoDeleteDocs    Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  admins            Admin[]
+  staff             Staff[]
+  printers          Printer[]
+  pricingRules      PricingRule[]
+  services          Service[]
+  orders            Order[]
+  printAgents       PrintAgent[]
+  auditLogs         AuditLog[]
+  systemSettings    SystemSetting[]
+}
+
+model Admin {
+  id            String    @id @default(uuid())
+  shopId        String
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          String    @default("ADMIN") // SUPER_ADMIN, ADMIN, MANAGER
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  auditLogs     AuditLog[]
+}
+
+model Staff {
+  id            String    @id @default(uuid())
+  shopId        String
+  name          String
+  pinHash       String
+  role          String    @default("OPERATOR") // OPERATOR, CASHIER
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+}
+
+model Customer {
+  id            String    @id @default(uuid())
+  phone         String?
+  email         String?
+  name          String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  orders        Order[]
+}
+
+model Order {
+  id               String       @id @default(uuid())
+  shopId           String
+  customerId       String?
+  tokenNumber      String       // Daily sequential token e.g. PF-001
+  tokenDate        String       // YYYY-MM-DD for sequence tracking
+  status           String       @default("PAYMENT_PENDING") // PAYMENT_PENDING, PAID, QUEUED, ASSIGNED, PRINTING, PRINTED, READY_FOR_COLLECTION, COLLECTED, PAYMENT_FAILED, PRINT_FAILED, PAUSED, CANCELLED, REFUND_PENDING, REFUNDED
+  totalAmount      Float        @default(0.0)
+  taxAmount        Float        @default(0.0)
+  discountAmount   Float        @default(0.0)
+  notes            String?
+  priority         Int          @default(0) // Higher = priority queue
+  paidAt           DateTime?
+  completedAt      DateTime?
+  collectedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  shop             Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer         Customer?    @relation(fields: [customerId], references: [id])
+  documents        Document[]
+  payments         Payment[]
+  refunds          Refund[]
+  printJobs        PrintJob[]
+  auditLogs        AuditLog[]
+
+  @@unique([shopId, tokenDate, tokenNumber])
+  @@index([shopId, status])
+  @@index([tokenNumber])
+}
+
+model Document {
+  id               String        @id @default(uuid())
+  orderId          String
+  originalFilename String
+  storedFilename   String
+  filePath         String
+  fileSizeBytes    Int
+  mimeType         String
+  pageCount        Int           @default(1)
+  previewUrl       String?
+  isProcessed      Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  settings         PrintSetting?
+  printJobs        PrintJob[]
+}
+
+model PrintSetting {
+  id               String        @id @default(uuid())
+  documentId       String        @unique
+  colorMode        String        @default("BW") // BW, COLOR
+  paperSize        String        @default("A4") // A4, A3, LEGAL, LETTER
+  duplexMode       String        @default("SINGLE") // SINGLE, DOUBLE
+  orientation      String        @default("PORTRAIT") // PORTRAIT, LANDSCAPE
+  copies           Int           @default(1)
+  pageRangeType    String        @default("ALL") // ALL, CUSTOM
+  customRange      String?       // e.g. "1-5, 8, 11-14"
+  billablePages    Int           @default(1)
+  bindingService   String?       // NONE, SPIRAL, STAPLE
+  laminationService Boolean      @default(false)
+  calculatedPrice  Float         @default(0.0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  document         Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model Printer {
+  id               String        @id @default(uuid())
+  shopId           String
+  name             String        // e.g. "Konica 251"
+  modelNumber      String?       // Manufacturer model if known
+  ipAddress        String        // e.g. "192.168.1.251" - private internal IP
+  windowsQueueName String?       // Installed Windows driver queue name e.g. "KONICA MINOLTA C251"
+  assignedCapability String      @default("BOTH") // BW, COLOR, BOTH
+  supportedPaperSizes String     @default("A4,A3,LEGAL")
+  status           String        @default("OFFLINE") // ONLINE, OFFLINE, BUSY, ERROR, PAUSED
+  isDefault        Boolean       @default(false)
+  isEnabled        Boolean       @default(true)
+  routingPriority  Int           @default(1) // Higher = preferred
+  lastHeartbeat    DateTime?
+  currentJobId     String?
+  errorMessage     String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  capabilities     PrinterCapability[]
+  printJobs        PrintJob[]
+  queueItems       PrintQueueItem[]
+}
+
+model PrinterCapability {
+  id               String        @id @default(uuid())
+  printerId        String
+  featureKey       String        // e.g. "COLOR", "DUPLEX", "A3", "STAPLE"
+  isSupported      Boolean       @default(true)
+  testedAt         DateTime?
+  notes            String?
+
+  printer          Printer       @relation(fields: [printerId], references: [id], onDelete: Cascade)
+
+  @@unique([printerId, featureKey])
+}
+
+model PrintAgent {
+  id               String        @id @default(uuid())
+  shopId           String
+  agentName        String        // e.g. "Shop-Win11-Host"
+  apiKeyHash       String        // Scoped agent auth
+  operatingSystem  String        @default("Windows 11")
+  ipAddress        String?
+  agentVersion     String        @default("1.0.0")
+  simulationMode   Boolean       @default(true) // Safe simulation mode by default
+  isOnline         Boolean       @default(false)
+  lastSeen         DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  heartbeats       AgentHeartbeat[]
+}
+
+model AgentHeartbeat {
+  id               String        @id @default(uuid())
+  agentId          String
+  status           String        @default("OK")
+  discoveredQueues String?       // JSON list of Windows printers
+  activeJobId      String?
+  memoryUsageMb    Float?
+  cpuUsagePct      Float?
+  createdAt        DateTime      @default(now())
+
+  agent            PrintAgent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model PrintJob {
+  id               String        @id @default(uuid())
+  orderId          String
+  documentId       String
+  printerId        String?
+  status           String        @default("QUEUED") // QUEUED, LEASED, ASSIGNED, PRINTING, PRINTED, SUBMITTED_TO_PRINTER, NEEDS_REVIEW, FAILED, CANCELLED
+  queueSequence    Int           @default(0)
+  attemptCount     Int           @default(0)
+  maxAttempts      Int           @default(3)
+  leaseToken       String?       // Lock token for atomic worker claiming
+  leaseExpiresAt   DateTime?
+  idempotencyKey   String        @unique
+  spoolerJobId     Int?
+  errorCode        String?
+  errorMessage     String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  document         Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  printer          Printer?      @relation(fields: [printerId], references: [id])
+  queueItem        PrintQueueItem?
+
+  @@index([status])
+  @@index([printerId, status])
+}
+
+model PrintQueueItem {
+  id               String        @id @default(uuid())
+  printJobId       String        @unique
+  printerId        String?
+  priority         Int           @default(0)
+  isPaused         Boolean       @default(false)
+  enqueuedAt       DateTime      @default(now())
+
+  printJob         PrintJob      @relation(fields: [printJobId], references: [id], onDelete: Cascade)
+  printer          Printer?      @relation(fields: [printerId], references: [id])
+}
+
+model Payment {
+  id               String        @id @default(uuid())
+  orderId          String
+  gateway          String        @default("RAZORPAY")
+  razorpayOrderId  String?       @unique
+  razorpayPaymentId String?      @unique
+  razorpaySignature String?
+  amount           Float
+  currency         String        @default("INR")
+  status           String        @default("PENDING") // PENDING, SUCCESS, FAILED, REFUNDED
+  paymentMethod    String?       // UPI, CARD, NETBANKING, WALLET
+  idempotencyKey   String?       @unique
+  verifiedAt       DateTime?
+  rawPayload       String?       // JSON audit
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Refund {
+  id               String        @id @default(uuid())
+  orderId          String
+  paymentId        String?
+  amount           Float
+  reason           String?
+  status           String        @default("PENDING") // PENDING, COMPLETED, FAILED
+  processedAt      DateTime?
+  createdAt        DateTime      @default(now())
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model PricingRule {
+  id               String        @id @default(uuid())
+  shopId           String
+  category         String        // PRINT_BW, PRINT_COLOR, PAPER_SIZE, DUPLEX_DISCOUNT
+  itemKey          String        // e.g. "A4_BW", "A4_COLOR", "A3_BW", "A3_COLOR", "LEGAL_BW", "LEGAL_COLOR", "DUPLEX_SHEET"
+  unitPrice        Float
+  description      String?
+  isActive         Boolean       @default(true)
+  updatedByAdminId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, category, itemKey])
+}
+
+model Service {
+  id               String        @id @default(uuid())
+  shopId           String
+  serviceKey       String        // SPIRAL_BINDING, LAMINATION, STAPLING, SCANNING
+  name             String
+  basePrice        Float
+  unitType         String        @default("PER_DOCUMENT") // PER_DOCUMENT, PER_PAGE
+  isEnabled        Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, serviceKey])
+}
+
+model Notification {
+  id               String        @id @default(uuid())
+  targetType       String        // ADMIN, CUSTOMER
+  targetId         String?
+  title            String
+  message          String
+  isRead           Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+}
+
+model AuditLog {
+  id               String        @id @default(uuid())
+  shopId           String
+  adminId          String?
+  orderId          String?
+  action           String        // ORDER_CANCELLED, QUEUE_PAUSED, PRINTER_REASSIGNED, PRICING_UPDATED, MANUAL_PRINT
+  details          String?       // JSON metadata
+  ipAddress        String?
+  createdAt        DateTime      @default(now())
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  admin            Admin?        @relation(fields: [adminId], references: [id])
+  order            Order?        @relation(fields: [orderId], references: [id])
+}
+
+model SystemSetting {
+  id               String        @id @default(uuid())
+  shopId           String
+  settingKey       String
+  settingValue     String
+  description      String?
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, settingKey])
+}

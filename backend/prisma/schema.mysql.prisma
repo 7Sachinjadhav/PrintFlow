@@ -1,0 +1,394 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Shop {
+  id                String       @id @default(uuid()) @db.VarChar(36)
+  name              String       @db.VarChar(191)
+  slug              String       @unique @db.VarChar(191)
+  logoUrl           String?      @db.Text
+  address           String?      @db.Text
+  phone             String?      @db.VarChar(50)
+  email             String?      @db.VarChar(191)
+  workingHours      String?      @db.VarChar(191)
+  isOpen            Boolean      @default(true)
+  qrCodeUrl         String?      @db.Text
+  maxUploadSizeBytes Int         @default(26214400) // 25 MB default
+  maxPageCount      Int          @default(500)
+  supportedFormats  String       @default("pdf,jpg,jpeg,png") @db.VarChar(191)
+  retentionDays     Int          @default(7)
+  autoDeleteDocs    Boolean      @default(true)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  admins            Admin[]
+  staff             Staff[]
+  printers          Printer[]
+  pricingRules      PricingRule[]
+  services          Service[]
+  orders            Order[]
+  printAgents       PrintAgent[]
+  auditLogs         AuditLog[]
+  systemSettings    SystemSetting[]
+
+  @@map("shops")
+}
+
+model Admin {
+  id            String    @id @default(uuid()) @db.VarChar(36)
+  shopId        String    @db.VarChar(36)
+  email         String    @unique @db.VarChar(191)
+  passwordHash  String    @db.VarChar(255)
+  name          String    @db.VarChar(191)
+  role          String    @default("ADMIN") @db.VarChar(50)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  auditLogs     AuditLog[]
+
+  @@map("admins")
+}
+
+model Staff {
+  id            String    @id @default(uuid()) @db.VarChar(36)
+  shopId        String    @db.VarChar(36)
+  name          String    @db.VarChar(191)
+  pinHash       String    @db.VarChar(255)
+  role          String    @default("OPERATOR") @db.VarChar(50)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop          Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("staff")
+}
+
+model Customer {
+  id            String    @id @default(uuid()) @db.VarChar(36)
+  phone         String?   @db.VarChar(50)
+  email         String?   @db.VarChar(191)
+  name          String?   @db.VarChar(191)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  orders        Order[]
+
+  @@map("customers")
+}
+
+model Order {
+  id               String       @id @default(uuid()) @db.VarChar(36)
+  shopId           String       @db.VarChar(36)
+  customerId       String?      @db.VarChar(36)
+  tokenNumber      String       @db.VarChar(50)
+  tokenDate        String       @db.VarChar(20)
+  status           String       @default("PAYMENT_PENDING") @db.VarChar(50)
+  totalAmount      Float        @default(0.0)
+  taxAmount        Float        @default(0.0)
+  discountAmount   Float        @default(0.0)
+  notes            String?      @db.Text
+  priority         Int          @default(0)
+  paidAt           DateTime?
+  completedAt      DateTime?
+  collectedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  shop             Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer         Customer?    @relation(fields: [customerId], references: [id])
+  documents        Document[]
+  payments         Payment[]
+  refunds          Refund[]
+  printJobs        PrintJob[]
+  auditLogs        AuditLog[]
+
+  @@unique([shopId, tokenDate, tokenNumber])
+  @@index([shopId, status])
+  @@index([tokenNumber])
+  @@map("orders")
+}
+
+model Document {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  orderId          String        @db.VarChar(36)
+  originalFilename String        @db.VarChar(255)
+  storedFilename   String        @db.VarChar(255)
+  filePath         String        @db.Text
+  fileSizeBytes    Int
+  mimeType         String        @db.VarChar(100)
+  pageCount        Int           @default(1)
+  previewUrl       String?       @db.Text
+  isProcessed      Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  settings         PrintSetting?
+  printJobs        PrintJob[]
+
+  @@map("documents")
+}
+
+model PrintSetting {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  documentId       String        @unique @db.VarChar(36)
+  colorMode        String        @default("BW") @db.VarChar(20)
+  paperSize        String        @default("A4") @db.VarChar(20)
+  duplexMode       String        @default("SINGLE") @db.VarChar(20)
+  orientation      String        @default("PORTRAIT") @db.VarChar(20)
+  copies           Int           @default(1)
+  pageRangeType    String        @default("ALL") @db.VarChar(20)
+  customRange      String?       @db.VarChar(100)
+  billablePages    Int           @default(1)
+  bindingService   String?       @db.VarChar(50)
+  laminationService Boolean      @default(false)
+  calculatedPrice  Float         @default(0.0)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  document         Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("print_settings")
+}
+
+model Printer {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  name             String        @db.VarChar(191)
+  modelNumber      String?       @db.VarChar(191)
+  ipAddress        String        @db.VarChar(50)
+  windowsQueueName String?       @db.VarChar(191)
+  assignedCapability String      @default("BOTH") @db.VarChar(50)
+  supportedPaperSizes String     @default("A4,A3,LEGAL") @db.VarChar(191)
+  status           String        @default("OFFLINE") @db.VarChar(50)
+  isDefault        Boolean       @default(false)
+  isEnabled        Boolean       @default(true)
+  routingPriority  Int           @default(1)
+  lastHeartbeat    DateTime?
+  currentJobId     String?       @db.VarChar(36)
+  errorMessage     String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  capabilities     PrinterCapability[]
+  printJobs        PrintJob[]
+  queueItems       PrintQueueItem[]
+
+  @@map("printers")
+}
+
+model PrinterCapability {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  printerId        String        @db.VarChar(36)
+  featureKey       String        @db.VarChar(50)
+  isSupported      Boolean       @default(true)
+  testedAt         DateTime?
+  notes            String?       @db.Text
+
+  printer          Printer       @relation(fields: [printerId], references: [id], onDelete: Cascade)
+
+  @@unique([printerId, featureKey])
+  @@map("printer_capabilities")
+}
+
+model PrintAgent {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  agentName        String        @db.VarChar(191)
+  apiKeyHash       String        @db.VarChar(255)
+  operatingSystem  String        @default("Windows 11") @db.VarChar(100)
+  ipAddress        String?       @db.VarChar(50)
+  agentVersion     String        @default("1.0.0") @db.VarChar(50)
+  simulationMode   Boolean       @default(true)
+  isOnline         Boolean       @default(false)
+  lastSeen         DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  heartbeats       AgentHeartbeat[]
+
+  @@map("print_agents")
+}
+
+model AgentHeartbeat {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  agentId          String        @db.VarChar(36)
+  status           String        @default("OK") @db.VarChar(50)
+  discoveredQueues String?       @db.Text
+  activeJobId      String?       @db.VarChar(36)
+  memoryUsageMb    Float?
+  cpuUsagePct      Float?
+  createdAt        DateTime      @default(now())
+
+  agent            PrintAgent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@map("agent_heartbeats")
+}
+
+model PrintJob {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  orderId          String        @db.VarChar(36)
+  documentId       String        @db.VarChar(36)
+  printerId        String?       @db.VarChar(36)
+  status           String        @default("QUEUED") @db.VarChar(50)
+  queueSequence    Int           @default(0)
+  attemptCount     Int           @default(0)
+  maxAttempts      Int           @default(3)
+  leaseToken       String?       @db.VarChar(100)
+  leaseExpiresAt   DateTime?
+  idempotencyKey   String        @unique @db.VarChar(100)
+  spoolerJobId     Int?
+  errorCode        String?       @db.VarChar(50)
+  errorMessage     String?       @db.Text
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  document         Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  printer          Printer?      @relation(fields: [printerId], references: [id])
+  queueItem        PrintQueueItem?
+
+  @@index([status])
+  @@index([printerId, status])
+  @@map("print_jobs")
+}
+
+model PrintQueueItem {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  printJobId       String        @unique @db.VarChar(36)
+  printerId        String?       @db.VarChar(36)
+  priority         Int           @default(0)
+  isPaused         Boolean       @default(false)
+  enqueuedAt       DateTime      @default(now())
+
+  printJob         PrintJob      @relation(fields: [printJobId], references: [id], onDelete: Cascade)
+  printer          Printer?      @relation(fields: [printerId], references: [id])
+
+  @@map("print_queue")
+}
+
+model Payment {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  orderId          String        @db.VarChar(36)
+  gateway          String        @default("RAZORPAY") @db.VarChar(50)
+  razorpayOrderId  String?       @unique @db.VarChar(100)
+  razorpayPaymentId String?      @unique @db.VarChar(100)
+  razorpaySignature String?      @db.VarChar(255)
+  amount           Float
+  currency         String        @default("INR") @db.VarChar(10)
+  status           String        @default("PENDING") @db.VarChar(50)
+  paymentMethod    String?       @db.VarChar(50)
+  idempotencyKey   String?       @unique @db.VarChar(100)
+  verifiedAt       DateTime?
+  rawPayload       String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Refund {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  orderId          String        @db.VarChar(36)
+  paymentId        String?       @db.VarChar(36)
+  amount           Float
+  reason           String?       @db.Text
+  status           String        @default("PENDING") @db.VarChar(50)
+  processedAt      DateTime?
+  createdAt        DateTime      @default(now())
+
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
+}
+
+model PricingRule {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  category         String        @db.VarChar(50)
+  itemKey          String        @db.VarChar(50)
+  unitPrice        Float
+  description      String?       @db.VarChar(191)
+  isActive         Boolean       @default(true)
+  updatedByAdminId String?       @db.VarChar(36)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, category, itemKey])
+  @@map("pricing_rules")
+}
+
+model Service {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  serviceKey       String        @db.VarChar(50)
+  name             String        @db.VarChar(191)
+  basePrice        Float
+  unitType         String        @default("PER_DOCUMENT") @db.VarChar(50)
+  isEnabled        Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, serviceKey])
+  @@map("services")
+}
+
+model Notification {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  targetType       String        @db.VarChar(50)
+  targetId         String?       @db.VarChar(36)
+  title            String        @db.VarChar(191)
+  message          String        @db.Text
+  isRead           Boolean       @default(false)
+  createdAt        DateTime      @default(now())
+
+  @@map("notifications")
+}
+
+model AuditLog {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  adminId          String?       @db.VarChar(36)
+  orderId          String?       @db.VarChar(36)
+  action           String        @db.VarChar(100)
+  details          String?       @db.Text
+  ipAddress        String?       @db.VarChar(50)
+  createdAt        DateTime      @default(now())
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  admin            Admin?        @relation(fields: [adminId], references: [id])
+  order            Order?        @relation(fields: [orderId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  id               String        @id @default(uuid()) @db.VarChar(36)
+  shopId           String        @db.VarChar(36)
+  settingKey       String        @db.VarChar(100)
+  settingValue     String        @db.Text
+  description      String?       @db.VarChar(191)
+  updatedAt        DateTime      @updatedAt
+
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, settingKey])
+  @@map("system_settings")
+}
