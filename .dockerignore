@@ -1,0 +1,10 @@
+node_modules
+*/node_modules
+*.db
+*.db-journal
+backend/storage/*
+!backend/storage/.gitkeep
+print-agent/downloads/*
+dist
+*/dist
+.git
