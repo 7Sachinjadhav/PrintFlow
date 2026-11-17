@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText,
@@ -38,13 +38,51 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  if (files.length === 0 || !priceCalculation) {
-    navigate('/upload');
+  useEffect(() => {
+    if (files.length === 0) {
+      navigate('/upload');
+    }
+  }, [files.length, navigate]);
+
+  // Compute safe breakdown even if API price calculation is still loading
+  const safeItems = useMemo(() => {
+    if (priceCalculation?.items && priceCalculation.items.length === files.length) {
+      return priceCalculation.items;
+    }
+    return files.map((f) => {
+      const isColor = f.setting.colorMode === 'COLOR';
+      const ratePerPage = isColor ? 10.0 : 2.0;
+      const copies = f.setting.copies || 1;
+      const pages = f.pageCount || 1;
+      const isDuplex = f.setting.duplexMode === 'DOUBLE';
+      const sheetsCount = isDuplex ? Math.ceil(pages / 2) * copies : pages * copies;
+      const bindingCost = f.setting.bindingService === 'SPIRAL' ? 40 : 0;
+      const laminationCost = f.setting.laminationService ? 20 * sheetsCount : 0;
+      const printSubtotal = pages * ratePerPage * copies;
+      const documentTotal = printSubtotal + bindingCost + laminationCost;
+
+      return {
+        documentId: f.tempId,
+        billablePages: pages * copies,
+        sheetsCount,
+        pageRate: ratePerPage,
+        printSubtotal,
+        bindingCost,
+        laminationCost,
+        documentTotal,
+      };
+    });
+  }, [files, priceCalculation]);
+
+  const totalSheets = safeItems.reduce((sum, item) => sum + (item.sheetsCount || 1), 0);
+  const totalPages = safeItems.reduce((sum, item) => sum + (item.billablePages || 1), 0);
+  const subtotal = priceCalculation?.subtotal ?? safeItems.reduce((sum, item) => sum + (item.documentTotal || 0), 0);
+  const taxAmount = priceCalculation?.taxAmount ?? 0;
+  const totalAmount = priceCalculation?.totalAmount ?? subtotal;
+
+  if (files.length === 0) {
     return null;
   }
-
-  const totalSheets = priceCalculation.items.reduce((sum, item) => sum + item.sheetsCount, 0);
-  const totalPages = priceCalculation.items.reduce((sum, item) => sum + item.billablePages, 0);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -65,7 +103,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
           <div className="divide-y divide-slate-100">
             {files.map((file, idx) => {
-              const itemPrice = priceCalculation.items[idx];
+              const itemPrice = safeItems[idx];
               return (
                 <div key={file.tempId || idx} className="py-3 first:pt-0 last:pb-0 space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -73,7 +111,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
                       {file.originalFilename}
                     </span>
                     <span className="text-xs font-extrabold text-slate-900">
-                      ₹{itemPrice?.documentTotal.toFixed(2) || '0.00'}
+                      ₹{itemPrice?.documentTotal?.toFixed(2) || '0.00'}
                     </span>
                   </div>
 
@@ -159,19 +197,19 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
 
           <div className="flex justify-between text-xs text-slate-600">
             <span>Subtotal:</span>
-            <span className="font-semibold">₹{priceCalculation.subtotal.toFixed(2)}</span>
+            <span className="font-semibold">₹{subtotal.toFixed(2)}</span>
           </div>
 
-          {priceCalculation.taxAmount > 0 && (
+          {taxAmount > 0 && (
             <div className="flex justify-between text-xs text-slate-600">
               <span>GST / Taxes:</span>
-              <span className="font-semibold">₹{priceCalculation.taxAmount.toFixed(2)}</span>
+              <span className="font-semibold">₹{taxAmount.toFixed(2)}</span>
             </div>
           )}
 
           <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-sm">
             <span className="font-bold text-slate-900">Total Payable:</span>
-            <span className="text-xl font-black text-indigo-600">₹{priceCalculation.totalAmount.toFixed(2)}</span>
+            <span className="text-xl font-black text-indigo-600">₹{totalAmount.toFixed(2)}</span>
           </div>
         </div>
 
@@ -191,7 +229,7 @@ export const ReviewPage: React.FC<ReviewPageProps> = ({
             onClick={() => navigate('/payment')}
             className="flex-2 py-3.5 px-5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 active:scale-[0.99] flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 transition"
           >
-            <span>Proceed to Pay ₹{priceCalculation.totalAmount.toFixed(2)}</span>
+            <span>Proceed to Pay ₹{totalAmount.toFixed(2)}</span>
             <CreditCard className="w-4 h-4" />
           </button>
         </div>

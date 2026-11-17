@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CreditCard,
@@ -38,8 +38,30 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<'UPI' | 'CARD' | 'SIMULATOR'>('UPI');
 
-  if (files.length === 0 || !priceCalculation) {
-    navigate('/upload');
+  useEffect(() => {
+    if (files.length === 0) {
+      navigate('/upload');
+    }
+  }, [files.length, navigate]);
+
+  const totalPayable = useMemo(() => {
+    if (priceCalculation?.totalAmount !== undefined) {
+      return priceCalculation.totalAmount;
+    }
+    return files.reduce((sum, f) => {
+      const isColor = f.setting.colorMode === 'COLOR';
+      const ratePerPage = isColor ? 10.0 : 2.0;
+      const copies = f.setting.copies || 1;
+      const pages = f.pageCount || 1;
+      const isDuplex = f.setting.duplexMode === 'DOUBLE';
+      const sheetsCount = isDuplex ? Math.ceil(pages / 2) * copies : pages * copies;
+      const bindingCost = f.setting.bindingService === 'SPIRAL' ? 40 : 0;
+      const laminationCost = f.setting.laminationService ? 20 * sheetsCount : 0;
+      return sum + (pages * ratePerPage * copies) + bindingCost + laminationCost;
+    }, 0);
+  }, [files, priceCalculation]);
+
+  if (files.length === 0) {
     return null;
   }
 
@@ -66,11 +88,10 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
       };
 
       const orderRes = await api.createOrder(orderPayload);
-      const { orderId, payment } = orderRes;
+      const { orderId } = orderRes;
 
-      // 2. Process payment
-      // For development and test mode, verify through test sandbox
-      const verifyRes = await api.simulateTestPayment({
+      // 2. Process payment through sandbox / test verification
+      await api.simulateTestPayment({
         orderId,
         paymentMethod: selectedMethod === 'UPI' ? 'UPI / GPay' : 'Debit/Credit Card',
       });
@@ -99,53 +120,45 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
         </div>
 
         {errorMsg && (
-          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-800">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        {/* Amount Header Card */}
-        <div className="bg-gradient-to-r from-indigo-900 to-indigo-800 rounded-2xl p-5 text-white flex items-center justify-between shadow-md">
-          <div>
-            <span className="text-[11px] uppercase font-bold text-indigo-200 tracking-wider">Amount Payable</span>
-            <div className="text-2xl font-black mt-0.5">₹{priceCalculation.totalAmount.toFixed(2)}</div>
-            <div className="text-xs text-indigo-200 mt-1">{files.length} {files.length === 1 ? 'Document' : 'Documents'}</div>
+        {/* UPI Payment Options */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+            Instant UPI Payment (Recommended)
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
-            <CreditCard className="w-6 h-6 text-indigo-200" />
-          </div>
-        </div>
 
-        {/* Payment Methods */}
-        <div className="space-y-2.5">
           <label
             onClick={() => setSelectedMethod('UPI')}
-            className={`flex items-center justify-between p-4 rounded-2xl border bg-white cursor-pointer transition ${
+            className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${
               selectedMethod === 'UPI'
-                ? 'border-indigo-600 ring-2 ring-indigo-600/20 shadow-sm'
+                ? 'border-indigo-600 bg-indigo-50/50'
                 : 'border-slate-200 hover:bg-slate-50'
             }`}
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
                 <QrCode className="w-5 h-5" />
               </div>
               <div>
-                <div className="text-xs font-bold text-slate-900">UPI / QR Code</div>
-                <div className="text-[11px] text-slate-400">Google Pay, PhonePe, Paytm, BHIM</div>
+                <div className="text-xs font-bold text-slate-900">UPI / QR / GPay / PhonePe / Paytm</div>
+                <div className="text-[11px] text-slate-400">Zero extra fees • Instant approval</div>
               </div>
             </div>
-            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              Instant
-            </span>
+            {selectedMethod === 'UPI' && (
+              <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+            )}
           </label>
 
           <label
             onClick={() => setSelectedMethod('CARD')}
-            className={`flex items-center justify-between p-4 rounded-2xl border bg-white cursor-pointer transition ${
+            className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition ${
               selectedMethod === 'CARD'
-                ? 'border-indigo-600 ring-2 ring-indigo-600/20 shadow-sm'
+                ? 'border-indigo-600 bg-indigo-50/50'
                 : 'border-slate-200 hover:bg-slate-50'
             }`}
           >
@@ -158,14 +171,16 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
                 <div className="text-[11px] text-slate-400">Visa, Mastercard, RuPay</div>
               </div>
             </div>
-            <span className="text-xs font-medium text-slate-400">Supported</span>
+            {selectedMethod === 'CARD' && (
+              <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+            )}
           </label>
         </div>
 
         {/* Security badge */}
         <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center gap-2 text-xs text-slate-600">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Server-verified payment signature • No card data saved</span>
+          <span>Server-verified payment signature • Instant Xerox Queue</span>
         </div>
 
         {/* Action Button */}
@@ -184,7 +199,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
             ) : (
               <>
                 <Zap className="w-4 h-4 text-amber-300" />
-                <span>Pay ₹{priceCalculation.totalAmount.toFixed(2)} & Get Print Token</span>
+                <span>Pay ₹{totalPayable.toFixed(2)} & Get Print Token</span>
               </>
             )}
           </button>

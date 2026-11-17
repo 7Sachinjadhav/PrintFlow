@@ -8,6 +8,7 @@ import fs from 'fs';
 import apiRouter from './routes/api.routes.js';
 import { initSocket } from './sockets/socket.handler.js';
 import { errorHandler } from './middlewares/errorHandler.middleware.js';
+import { ensureDatabaseSeeded } from './services/seed.service.js';
 
 dotenv.config();
 
@@ -57,6 +58,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Setup seed endpoint (callable anytime)
+app.post('/api/setup/seed', async (req, res) => {
+  try {
+    await ensureDatabaseSeeded();
+    res.json({ success: true, message: 'Database seeded successfully' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // API Routes
 app.use('/api', apiRouter);
 
@@ -80,12 +91,13 @@ app.use(errorHandler);
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`=================================================`);
   console.log(`🚀 PrintFlow Backend Server running on port ${PORT}`);
   console.log(`🌐 Local API:     http://localhost:${PORT}/api`);
   console.log(`📡 Health Check:  http://localhost:${PORT}/health`);
   console.log(`=================================================`);
+  await ensureDatabaseSeeded();
 });
 
 export { app, server };
