@@ -69,6 +69,12 @@ export interface CalculatedOrderPrice {
   currency: string;
 }
 
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 export interface ShopInfo {
   id: string;
   name: string;
