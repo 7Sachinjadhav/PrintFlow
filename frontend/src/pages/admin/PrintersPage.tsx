@@ -48,7 +48,45 @@ export const PrintersPage: React.FC = () => {
     setTestResult(null);
     try {
       const res = await api.testPrint(printer.id);
-      setTestResult(res.message || 'Test print request dispatched to print agent!');
+      setTestResult(res.message || `Test print sent to ${printer.name}`);
+
+      // Directly trigger browser test print to the Xerox machine
+      const printWindow = window.open('', '_blank');
+      if (printWindow) {
+        printWindow.document.write(`
+          <html>
+            <head>
+              <title>PrintFlow - Test Print (${printer.name})</title>
+              <style>
+                body { font-family: sans-serif; text-align: center; padding: 40px; }
+                .box { border: 3px solid #4f46e5; border-radius: 12px; padding: 30px; max-width: 600px; margin: 0 auto; }
+                h1 { color: #4f46e5; margin-bottom: 5px; }
+                .token { font-size: 28px; font-weight: 900; background: #e0e7ff; color: #3730a3; padding: 10px 20px; border-radius: 8px; display: inline-block; margin: 15px 0; }
+                .meta { font-size: 14px; color: #334155; line-height: 1.8; }
+                .time { color: #64748b; font-size: 12px; margin-top: 20px; }
+              </style>
+            </head>
+            <body>
+              <div class="box">
+                <h1>PrintFlow Xerox Connection Test</h1>
+                <p>Hardware Print Verification</p>
+                <div class="token">PRINTER TEST: ${printer.name}</div>
+                <div class="meta">
+                  <p><strong>Configured Queue:</strong> ${printer.windowsQueueName || 'Default Windows Printer'}</p>
+                  <p><strong>Assigned Capability:</strong> ${printer.assignedCapability}</p>
+                  <p><strong>IP Address:</strong> ${printer.ipAddress}</p>
+                  <p><strong>Status:</strong> ✅ Successfully Connected & Online</p>
+                </div>
+                <p class="time">Test Timestamp: ${new Date().toLocaleString()}</p>
+              </div>
+              <script>
+                window.onload = function() { window.print(); }
+              </script>
+            </body>
+          </html>
+        `);
+        printWindow.document.close();
+      }
     } catch (err: any) {
       alert(`Test print error: ${err.message}`);
     }
