@@ -170,6 +170,158 @@ export class QueueController {
   }
 
   /**
+   * Get pending orders awaiting shopkeeper payment approval
+   */
+  static async getPendingApprovals(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const shopId = req.admin?.shopId;
+      const pendingOrders = await prisma.order.findMany({
+        where: {
+          shopId,
+          status: 'PAYMENT_PENDING',
+        },
+        include: {
+          customer: true,
+          documents: { include: { settings: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      });
+
+      res.json({ success: true, data: pendingOrders });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Shopkeeper 1-Click Approval: Verifies payment and immediately sends to Xerox machine
+   */
+  static async approveOrderPayment(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const orderId = req.params.orderId as string;
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { documents: true },
+      });
+
+      if (!order) {
+        res.status(404).json({ success: false, error: 'Order not found' });
+        return;
+      }
+
+      // Mark order as PAID
+      const updatedOrder = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: 'QUEUED',
+          paidAt: new Date(),
+        },
+      });
+
+      // Record successful payment
+      await prisma.payment.create({
+        data: {
+          orderId,
+          gateway: 'PHONEPE_UPI_VERIFIED',
+          amount: order.totalAmount,
+          currency: 'INR',
+          status: 'SUCCESS',
+          paymentMethod: 'PhonePe / GPay Verified',
+          idempotencyKey: `approve_${orderId}_${Date.now()}`,
+          verifiedAt: new Date(),
+        },
+      });
+
+      // Enqueue documents for Xerox machine
+      await QueueService.enqueueOrderJobs(orderId);
+
+      if (req.admin) {
+        await AuditService.log({
+          shopId: req.admin.shopId,
+          adminId: req.admin.adminId,
+          orderId,
+          action: 'PAYMENT_APPROVED_BY_OWNER',
+          details: { amount: order.totalAmount, tokenNumber: order.tokenNumber },
+        });
+      }
+
+      // Live Socket.IO Broadcast to both customer phone and shop queue
+      const io = getSocketServer();
+      if (io) {
+        io.to(`order_${orderId}`).emit('order_status_updated', {
+          orderId,
+          status: 'QUEUED',
+          tokenNumber: order.tokenNumber,
+          message: 'Payment approved by shopkeeper! Document queued for printing.',
+        });
+
+        io.to(`shop_${order.shopId}`).emit('new_queue_job', {
+          orderId,
+          tokenNumber: order.tokenNumber,
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          orderId,
+          tokenNumber: order.tokenNumber,
+          status: 'QUEUED',
+          message: 'Payment approved successfully. Order released to Xerox print queue.',
+        },
+      });
+    } catch (err: any) {
+      console.error('Approval error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Shopkeeper 1-Click Reject: Rejects unpaid/fake order with zero loss
+   */
+  static async rejectOrderPayment(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const orderId = req.params.orderId as string;
+
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (!order) {
+        res.status(404).json({ success: false, error: 'Order not found' });
+        return;
+      }
+
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: 'PAYMENT_FAILED' },
+      });
+
+      if (req.admin) {
+        await AuditService.log({
+          shopId: req.admin.shopId,
+          adminId: req.admin.adminId,
+          orderId,
+          action: 'PAYMENT_REJECTED_BY_OWNER',
+          details: { reason: 'Payment not received in account' },
+        });
+      }
+
+      const io = getSocketServer();
+      if (io) {
+        io.to(`order_${orderId}`).emit('order_status_updated', {
+          orderId,
+          status: 'PAYMENT_FAILED',
+          message: 'Payment not detected in shop account. Please pay at counter.',
+        });
+      }
+
+      res.json({ success: true, message: 'Order rejected. No print job created.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
    * Admin manual status update (e.g. READY_FOR_COLLECTION, COLLECTED, CANCELLED)
    */
   static async updateOrderStatus(req: AuthenticatedRequest, res: Response): Promise<void> {

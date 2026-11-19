@@ -51,6 +51,9 @@ router.get('/admin/reports/summary', requireAdminAuth, ReportController.getSumma
 router.get('/admin/reports/export', requireAdminAuth, ReportController.exportOrders);
 
 router.get('/admin/queue', requireAdminAuth, QueueController.getQueue);
+router.get('/admin/orders/pending-approvals', requireAdminAuth, QueueController.getPendingApprovals);
+router.post('/admin/orders/:orderId/approve', requireAdminAuth, QueueController.approveOrderPayment);
+router.post('/admin/orders/:orderId/reject', requireAdminAuth, QueueController.rejectOrderPayment);
 router.get('/admin/orders', requireAdminAuth, QueueController.getAllOrders);
 router.post('/admin/queue/:jobId/retry', requireAdminAuth, QueueController.retryJob);
 router.patch('/admin/orders/:orderId/status', requireAdminAuth, QueueController.updateOrderStatus);

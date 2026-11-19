@@ -16,6 +16,10 @@ import {
   Check,
   ChevronRight,
   Sliders,
+  X,
+  CreditCard,
+  Clock,
+  ArrowRight,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -23,6 +27,7 @@ import { useSocket } from '../../hooks/useSocket';
 
 export const LiveQueuePage: React.FC = () => {
   const [jobs, setJobs] = useState<any[]>([]);
+  const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -38,6 +43,7 @@ export const LiveQueuePage: React.FC = () => {
 
   // Keep track of job IDs that have already been auto-printed in this browser session
   const autoPrintedJobIdsRef = useRef<Set<string>>(new Set());
+  const prevPendingCountRef = useRef<number>(0);
 
   const socket = useSocket();
 
@@ -103,12 +109,24 @@ export const LiveQueuePage: React.FC = () => {
   // Fetch queue and handle Auto-Print trigger
   const fetchQueue = async () => {
     try {
-      const data = await api.getAdminQueue();
-      setJobs(data);
+      const [queueData, pendingRes] = await Promise.all([
+        api.getAdminQueue().catch(() => []),
+        api.getPendingApprovals().catch(() => ({ data: [] })),
+      ]);
+
+      setJobs(Array.isArray(queueData) ? queueData : []);
+      const pendingList = Array.isArray(pendingRes?.data) ? pendingRes.data : [];
+      setPendingApprovals(pendingList);
+
+      // Play chime if new pending payment arrives
+      if (pendingList.length > prevPendingCountRef.current) {
+        playAlertChime();
+      }
+      prevPendingCountRef.current = pendingList.length;
 
       // Auto-print check: if Auto-Print is enabled, find any unprinted QUEUED jobs
-      if (autoPrintEnabled && Array.isArray(data)) {
-        const queuedJobs = data.filter((j) => j.status === 'QUEUED' && !autoPrintedJobIdsRef.current.has(j.id));
+      if (autoPrintEnabled && Array.isArray(queueData)) {
+        const queuedJobs = queueData.filter((j: any) => j.status === 'QUEUED' && !autoPrintedJobIdsRef.current.has(j.id));
 
         for (const job of queuedJobs) {
           autoPrintedJobIdsRef.current.add(job.id);
@@ -134,7 +152,7 @@ export const LiveQueuePage: React.FC = () => {
 
   useEffect(() => {
     fetchQueue();
-    const interval = setInterval(fetchQueue, 4000);
+    const interval = setInterval(fetchQueue, 3000);
     return () => clearInterval(interval);
   }, [autoPrintEnabled, soundEnabled]);
 
@@ -142,6 +160,10 @@ export const LiveQueuePage: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
+    socket.on('new_pending_payment', () => {
+      playAlertChime();
+      fetchQueue();
+    });
     socket.on('new_queue_job', () => {
       playAlertChime();
       fetchQueue();
@@ -151,6 +173,7 @@ export const LiveQueuePage: React.FC = () => {
     socket.on('order_status_updated', fetchQueue);
 
     return () => {
+      socket.off('new_pending_payment', fetchQueue);
       socket.off('new_queue_job', fetchQueue);
       socket.off('queue_job_claimed', fetchQueue);
       socket.off('queue_updated', fetchQueue);
@@ -244,6 +267,34 @@ export const LiveQueuePage: React.FC = () => {
       await fetchQueue();
     } catch (err: any) {
       alert(`Status update failed: ${err.message}`);
+    }
+  };
+
+  // 1-Click Approve Payment & Release to Xerox
+  const handleApprovePayment = async (orderId: string) => {
+    setActionLoadingId(orderId);
+    try {
+      await api.approveOrderPayment(orderId);
+      playAlertChime();
+      await fetchQueue();
+    } catch (err: any) {
+      alert(`Approval error: ${err.message}`);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  // 1-Click Reject Fake/Unpaid Order (Zero loss)
+  const handleRejectPayment = async (orderId: string) => {
+    if (!window.confirm('Reject this order? Customer will be notified that payment was not detected.')) return;
+    setActionLoadingId(orderId);
+    try {
+      await api.rejectOrderPayment(orderId);
+      await fetchQueue();
+    } catch (err: any) {
+      alert(`Rejection error: ${err.message}`);
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -384,6 +435,148 @@ export const LiveQueuePage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 1-CLICK UPI PAYMENT APPROVALS (Zero Fake Orders Guarantee) */}
+      <div
+        className={`rounded-2xl border transition duration-200 overflow-hidden ${
+          pendingApprovals.length > 0
+            ? 'bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-amber-300 shadow-md ring-2 ring-amber-400/20'
+            : 'bg-white border-slate-200 shadow-sm'
+        }`}
+      >
+        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-amber-200/60 bg-amber-100/40">
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-sm ${
+                pendingApprovals.length > 0 ? 'bg-amber-600 animate-pulse' : 'bg-slate-400'
+              }`}
+            >
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-black text-slate-900 tracking-tight">
+                  UPI Payment Approvals (PhonePe / GPay)
+                </h2>
+                {pendingApprovals.length > 0 ? (
+                  <span className="bg-amber-500 text-white font-mono text-xs font-bold px-2.5 py-0.5 rounded-full animate-bounce">
+                    {pendingApprovals.length} Awaiting Approval
+                  </span>
+                ) : (
+                  <span className="bg-emerald-100 text-emerald-800 text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" /> All Verified
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Check your PhonePe Soundbox or SMS, then tap <strong>Approve & Print</strong> to immediately release the Xerox job.
+              </p>
+            </div>
+          </div>
+
+          <div className="text-right text-[11px] text-slate-500 hidden md:block">
+            <span className="font-semibold text-slate-700">Account:</span> 8073577702@ibl (Sachin S Jadhav)
+          </div>
+        </div>
+
+        {pendingApprovals.length === 0 ? (
+          <div className="p-4 text-center text-xs text-slate-400">
+            No orders awaiting payment. When a customer taps PhonePe or scans the QR, their order appears here for 1-click confirmation.
+          </div>
+        ) : (
+          <div className="divide-y divide-amber-200/50">
+            {pendingApprovals.map((order) => {
+              const isProcessing = actionLoadingId === order.id;
+              const docSummary =
+                order.documents
+                  ?.map(
+                    (d: any) =>
+                      `${d.originalFilename} (${d.pageCount}p, ${d.settings?.colorMode || 'BW'})`
+                  )
+                  .join(', ') || 'Document';
+
+              return (
+                <div
+                  key={order.id}
+                  className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4 hover:bg-amber-50/60 transition"
+                >
+                  <div className="flex items-start sm:items-center gap-4">
+                    <div className="bg-white px-3 py-2 rounded-xl border border-amber-300 shadow-sm text-center min-w-[90px]">
+                      <div className="text-[10px] font-bold text-amber-700 uppercase">Token</div>
+                      <div className="font-mono text-lg font-black text-slate-900">{order.tokenNumber}</div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-black text-emerald-700">
+                          ₹{Number(order.totalAmount).toFixed(2)}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          • {order.customer?.name || 'Customer'}
+                        </span>
+                        {order.customer?.phone && (
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            ({order.customer.phone})
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="text-xs text-slate-600 font-medium truncate max-w-md mt-0.5"
+                        title={docSummary}
+                      >
+                        📄 {docSummary}
+                      </div>
+                      <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-1">
+                        <Clock className="w-3 h-3" />
+                        <span>
+                          Submitted{' '}
+                          {new Date(order.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end md:self-center">
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => handleRejectPayment(order.id)}
+                      className="px-3.5 py-2.5 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold transition flex items-center gap-1.5 disabled:opacity-50"
+                      title="Reject if payment was not received"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Reject (Unpaid)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isProcessing}
+                      onClick={() => handleApprovePayment(order.id)}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-black shadow-md shadow-emerald-200 transition flex items-center gap-2 disabled:bg-slate-300"
+                    >
+                      {isProcessing ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Releasing to Xerox...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>Approve & Print</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Main Queue Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">

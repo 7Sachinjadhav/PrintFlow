@@ -67,6 +67,9 @@ export const api = {
   // Admin Dashboard & Queue
   getDashboardSummary: () => request<any>('/admin/reports/summary'),
   getAdminQueue: () => request<any>('/admin/queue'),
+  getPendingApprovals: () => request<any>('/admin/orders/pending-approvals'),
+  approveOrderPayment: (orderId: string) => request<any>(`/admin/orders/${orderId}/approve`, { method: 'POST' }),
+  rejectOrderPayment: (orderId: string) => request<any>(`/admin/orders/${orderId}/reject`, { method: 'POST' }),
   getAllOrders: (params: { page?: number; limit?: number; status?: string; search?: string }) => {
     const q = new URLSearchParams();
     if (params.page) q.append('page', params.page.toString());

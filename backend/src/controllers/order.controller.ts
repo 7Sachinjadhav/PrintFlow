@@ -99,6 +99,17 @@ export class OrderController {
       // 5. Initialize payment intent
       const paymentIntent = await PaymentService.createPaymentOrder(order.id, priceCalculation.totalAmount);
 
+      // Broadcast new pending payment order to shopkeeper dashboard in real-time
+      const io = getSocketServer();
+      if (io) {
+        io.to(`shop_${shop.id}`).emit('new_pending_payment', {
+          orderId: order.id,
+          tokenNumber: order.tokenNumber,
+          totalAmount: order.totalAmount,
+          customerName: customer?.name || 'Customer',
+        });
+      }
+
       res.status(201).json({
         success: true,
         data: {
