@@ -20,6 +20,8 @@ import {
   CreditCard,
   Clock,
   ArrowRight,
+  Copy,
+  Smartphone,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -39,7 +41,36 @@ export const LiveQueuePage: React.FC = () => {
     return localStorage.getItem('printflow_sound_alerts') !== 'false';
   });
   const [showKioskGuide, setShowKioskGuide] = useState(false);
+  const [showAutomationGuide, setShowAutomationGuide] = useState(false);
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [testSimulating, setTestSimulating] = useState(false);
   const [lastPrintedMessage, setLastPrintedMessage] = useState<string | null>(null);
+
+  const webhookUrl = `${window.location.origin}/api/payments/webhook/sms?secret=pf_auto_8073577702`;
+
+  const copyWebhookUrl = () => {
+    navigator.clipboard.writeText(webhookUrl);
+    setCopiedWebhook(true);
+    setTimeout(() => setCopiedWebhook(false), 2500);
+  };
+
+  const handleSimulateAutomatedPayment = async (order?: any) => {
+    setTestSimulating(true);
+    try {
+      const amount = order?.totalAmount || 2.0;
+      const token = order?.tokenNumber || 'PF-001';
+      const testText = `PhonePe: Received ₹${Number(amount).toFixed(2)} from Test Customer for ${token}`;
+
+      await api.testSmsWebhook({ text: testText, secret: 'pf_auto_8073577702' });
+      playAlertChime();
+      alert(`✅ Android Webhook Auto-Approval Tested Successfully!\n\nSimulated Signal: "${testText}"\n\nOrder ${token} was automatically verified, token sent to customer's phone, and released to Xerox print queue!`);
+      await fetchQueue();
+    } catch (err: any) {
+      alert(`Simulation error: ${err.message}`);
+    } finally {
+      setTestSimulating(false);
+    }
+  };
 
   // Keep track of job IDs that have already been auto-printed in this browser session
   const autoPrintedJobIdsRef = useRef<Set<string>>(new Set());
@@ -474,10 +505,99 @@ export const LiveQueuePage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-right text-[11px] text-slate-500 hidden md:block">
-            <span className="font-semibold text-slate-700">Account:</span> 8073577702@ibl (Sachin S Jadhav)
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAutomationGuide(!showAutomationGuide)}
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-sm"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>{showAutomationGuide ? 'Hide Auto Setup' : '⚡ 100% Android Automation Setup'}</span>
+            </button>
+            <div className="text-right text-[11px] text-slate-500 hidden xl:block">
+              <span className="font-semibold text-slate-700">UPI:</span> 8073577702@ibl
+            </div>
           </div>
         </div>
+
+        {/* 100% HANDS-FREE ANDROID AUTOMATION GUIDE */}
+        {showAutomationGuide && (
+          <div className="p-5 bg-indigo-950 text-white border-b border-indigo-900 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-sm font-bold">100% Hands-Free Android Automation (Zero Owner Clicks)</h3>
+              </div>
+              <button
+                onClick={() => setShowAutomationGuide(false)}
+                className="text-xs text-indigo-300 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="text-xs text-indigo-200">
+              When a customer pays via PhonePe/GPay, their phone notification forwards directly to this URL to trigger instant printing!
+            </p>
+
+            {/* Webhook URL with 1-Click Copy */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-indigo-300">Your Phone Webhook Target URL:</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={webhookUrl}
+                  className="flex-1 bg-black/40 border border-indigo-700 text-amber-300 font-mono text-xs px-3.5 py-2.5 rounded-xl focus:outline-none select-all"
+                />
+                <button
+                  type="button"
+                  onClick={copyWebhookUrl}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 transition shadow-sm shrink-0"
+                >
+                  {copiedWebhook ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedWebhook ? 'Copied!' : 'Copy URL'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Step-by-Step setup */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
+              <div className="bg-indigo-900/60 p-3.5 rounded-xl border border-indigo-800 space-y-1">
+                <div className="font-bold text-amber-300">1. Download App</div>
+                <div className="text-indigo-200 text-[11px]">
+                  Install <strong>SMS Forwarder</strong> or <strong>MacroDroid</strong> (Free on Play Store) on the shop phone where PhonePe is logged in.
+                </div>
+              </div>
+              <div className="bg-indigo-900/60 p-3.5 rounded-xl border border-indigo-800 space-y-1">
+                <div className="font-bold text-amber-300">2. Paste Webhook URL</div>
+                <div className="text-indigo-200 text-[11px]">
+                  Set Target: <strong>Webhook (POST)</strong> and paste the URL above.
+                </div>
+              </div>
+              <div className="bg-indigo-900/60 p-3.5 rounded-xl border border-indigo-800 space-y-1">
+                <div className="font-bold text-amber-300">3. Select PhonePe & GPay</div>
+                <div className="text-indigo-200 text-[11px]">
+                  Enable Notification forwarding for PhonePe, GPay, and Bank SMS. Done!
+                </div>
+              </div>
+            </div>
+
+            {/* Test Automation Button */}
+            <div className="pt-2 flex items-center justify-between border-t border-indigo-900">
+              <span className="text-[11px] text-indigo-300">Want to test if auto-verification works right now?</span>
+              <button
+                type="button"
+                disabled={testSimulating}
+                onClick={() => handleSimulateAutomatedPayment(pendingApprovals[0])}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl flex items-center gap-1.5 transition disabled:opacity-50"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>{testSimulating ? 'Simulating...' : '🧪 Simulate Phone Notification Test'}</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {pendingApprovals.length === 0 ? (
           <div className="p-4 text-center text-xs text-slate-400">

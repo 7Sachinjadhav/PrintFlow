@@ -271,4 +271,181 @@ export class PaymentController {
       res.status(500).json({ error: err.message });
     }
   }
+
+  /**
+   * Android UPI Notification / SMS Webhook:
+   * Receives incoming payment notification/SMS from Android PhonePe / GPay forwarder app.
+   * Instantly auto-approves matching pending order and prints document hands-free.
+   */
+  static async handleSmsWebhook(req: Request, res: Response): Promise<void> {
+    try {
+      // 1. Secret key validation (optional or query param)
+      const secret = (req.query.secret || req.headers['x-secret'] || req.body?.secret) as string;
+      const expectedSecret = process.env.SMS_WEBHOOK_SECRET || 'pf_auto_8073577702';
+
+      if (secret && secret !== expectedSecret) {
+        res.status(401).json({ success: false, error: 'Unauthorized webhook secret' });
+        return;
+      }
+
+      // 2. Extract message body from various Android forwarder app formats
+      const body = req.body || {};
+      const rawText = String(
+        body.text ||
+        body.content ||
+        body.message ||
+        body.msg ||
+        body.body ||
+        body.sms ||
+        body.notification ||
+        (typeof req.body === 'string' ? req.body : JSON.stringify(req.body))
+      );
+
+      console.log(`[SMS/Notification Webhook Received]:`, rawText);
+
+      // 3. Parse amount, token, UTR, credit/debit
+      const lower = rawText.toLowerCase();
+      const isDebit = /debited|debit|dr\b|sent to|paid to [^y]/i.test(lower);
+      const isCredit = /received|credited|credit|cr\b|deposit|paid to you|prapt hue/i.test(lower);
+
+      if (isDebit && !isCredit) {
+        res.json({ success: true, message: 'Ignored debit transaction' });
+        return;
+      }
+
+      // Match amount: e.g. "Received ₹ 2.00", "Rs. 2.00", "INR 2", "credited for Rs:2.00", "₹2"
+      const amountMatch =
+        rawText.match(/(?:₹|rs\.?|rs:|inr)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
+        rawText.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:received|credited|cr\b)/i) ||
+        rawText.match(/(?:received|credited)\s*(?:₹|rs\.?|rs:|inr)?\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+
+      let amount: number | null = null;
+      if (amountMatch && amountMatch[1]) {
+        amount = parseFloat(amountMatch[1]);
+      }
+
+      // Match token if present: e.g. "PF-001" or "PrintFlow-PF-001"
+      const tokenMatch = rawText.match(/(?:PF|PrintFlow)[-_ ]*([0-9]{3,4})/i) || rawText.match(/\bPF-([0-9]{3,4})\b/i);
+      let tokenNumber: string | null = null;
+      if (tokenMatch) {
+        const numOnly = tokenMatch[1] || tokenMatch[0].replace(/[^0-9]/g, '');
+        tokenNumber = `PF-${numOnly.padStart(3, '0')}`;
+      }
+
+      // Match 12-digit UTR if present
+      const utrMatch =
+        rawText.match(/(?:upi(?:\/|:|\s+ref|\s+txn)?\s*[:/]?\s*|utr\s*[:/]?\s*)([0-9]{12})/i) ||
+        rawText.match(/\b([0-9]{12})\b/);
+      const utr = utrMatch ? utrMatch[1] : null;
+
+      // 4. Find matching order in database
+      let matchedOrder: any = null;
+
+      // Strategy A: If Token was found in SMS / notification note
+      if (tokenNumber) {
+        matchedOrder = await prisma.order.findFirst({
+          where: {
+            tokenNumber,
+            status: 'PAYMENT_PENDING',
+          },
+          include: { documents: true, shop: true },
+        });
+      }
+
+      // Strategy B: Match by exact amount in recently created pending orders (within last 30 minutes)
+      if (!matchedOrder && amount !== null) {
+        const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const candidates = await prisma.order.findMany({
+          where: {
+            status: 'PAYMENT_PENDING',
+            createdAt: { gte: thirtyMinutesAgo },
+          },
+          include: { documents: true, shop: true },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        // Match order where totalAmount equals amount (tolerating 0.05 float rounding)
+        matchedOrder = candidates.find((ord) => Math.abs(Number(ord.totalAmount) - amount!) < 0.05);
+      }
+
+      if (!matchedOrder) {
+        console.warn(`[SMS Webhook] No matching pending order found for: Amount: ${amount}, Token: ${tokenNumber}`);
+        res.json({
+          success: true,
+          matched: false,
+          parsed: { amount, tokenNumber, utr },
+          message: 'Webhook received and parsed, but no pending order matched amount or token.',
+        });
+        return;
+      }
+
+      // 5. Instantly mark order as PAID and QUEUED
+      await prisma.order.update({
+        where: { id: matchedOrder.id },
+        data: {
+          status: 'QUEUED',
+          paidAt: new Date(),
+          notes: utr
+            ? (matchedOrder.notes ? `${matchedOrder.notes} | Auto-Verified UPI UTR: ${utr}` : `Auto-Verified UPI UTR: ${utr}`)
+            : matchedOrder.notes,
+        },
+      });
+
+      // Record successful payment in database
+      await prisma.payment.create({
+        data: {
+          orderId: matchedOrder.id,
+          gateway: 'PHONEPE_ANDROID_AUTO',
+          amount: matchedOrder.totalAmount,
+          currency: 'INR',
+          status: 'SUCCESS',
+          paymentMethod: 'PhonePe Android Auto-Forwarder',
+          idempotencyKey: `auto_sms_${matchedOrder.id}_${Date.now()}`,
+          razorpayPaymentId: utr ? `utr_${utr}` : undefined,
+          verifiedAt: new Date(),
+        },
+      });
+
+      // Enqueue documents to Xerox print queue
+      await QueueService.enqueueOrderJobs(matchedOrder.id);
+
+      // Live Socket.IO Broadcast to both customer phone and shop queue
+      const io = getSocketServer();
+      if (io) {
+        io.to(`order_${matchedOrder.id}`).emit('order_status_updated', {
+          orderId: matchedOrder.id,
+          status: 'QUEUED',
+          tokenNumber: matchedOrder.tokenNumber,
+          message: 'Payment verified automatically via PhonePe! Document printing.',
+        });
+
+        io.to(`shop_${matchedOrder.shopId}`).emit('new_queue_job', {
+          orderId: matchedOrder.id,
+          tokenNumber: matchedOrder.tokenNumber,
+        });
+      }
+
+      console.log(`[SMS Webhook Success] Order ${matchedOrder.id} (${matchedOrder.tokenNumber}) auto-approved & sent to Xerox!`);
+
+      res.json({
+        success: true,
+        matched: true,
+        orderId: matchedOrder.id,
+        tokenNumber: matchedOrder.tokenNumber,
+        amount: matchedOrder.totalAmount,
+        message: 'Payment automatically verified. Order released to Xerox printer.',
+      });
+    } catch (err: any) {
+      console.error('SMS webhook error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Test endpoint to simulate incoming SMS webhook
+   */
+  static async testSmsWebhook(req: Request, res: Response): Promise<void> {
+    req.body = req.body?.text ? req.body : { text: req.body?.message || 'PhonePe: Received ₹2.00 from Rahul Kumar' };
+    return PaymentController.handleSmsWebhook(req, res);
+  }
 }

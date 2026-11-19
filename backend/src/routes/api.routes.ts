@@ -40,6 +40,17 @@ router.post('/payments/submit-utr', PaymentController.submitUtrPayment);
 router.post('/payments/simulate-test', PaymentController.simulateTestPayment);
 router.post('/payments/webhook', PaymentController.handleWebhook);
 
+// Android PhonePe / GPay Notification & SMS Webhook (Hands-Free Automation)
+router.post('/payments/webhook/sms', PaymentController.handleSmsWebhook);
+router.post('/payments/webhook/sms/test', PaymentController.testSmsWebhook);
+router.get('/payments/webhook/sms', (req, res) => {
+  res.json({
+    status: 'ACTIVE',
+    service: 'PrintFlow Android UPI Auto-Verification Webhook',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // --- ADMIN AUTH ROUTES ---
 router.post('/admin/login', AuthController.login);
 router.post('/admin/refresh', AuthController.refreshToken);
