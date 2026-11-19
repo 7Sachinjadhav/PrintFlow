@@ -313,11 +313,11 @@ export class PaymentController {
         return;
       }
 
-      // Match amount: e.g. "Received ₹ 2.00", "Rs. 2.00", "INR 2", "credited for Rs:2.00", "₹2"
+      // Match amount: e.g. "Received ₹ 2.00", "Rs. 2.00", "INR 2", "credited for Rs:2.00", "PhonePe par 2 rupaye"
       const amountMatch =
+        rawText.match(/(?:received|credited|paid|recieved)\s*[^\d\n\r]{0,10}\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
         rawText.match(/(?:₹|rs\.?|rs:|inr)\s*([0-9]+(?:\.[0-9]{1,2})?)/i) ||
-        rawText.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*(?:received|credited|cr\b)/i) ||
-        rawText.match(/(?:received|credited)\s*(?:₹|rs\.?|rs:|inr)?\s*([0-9]+(?:\.[0-9]{1,2})?)/i);
+        rawText.match(/([0-9]+(?:\.[0-9]{1,2})?)\s*[^\d\n\r]{0,10}\s*(?:received|credited|cr\b|rupaye|prapt)/i);
 
       let amount: number | null = null;
       if (amountMatch && amountMatch[1]) {
