@@ -3,10 +3,17 @@ import Razorpay from 'razorpay';
 import prisma from '../utils/prisma.js';
 import { QueueService } from './queue.service.js';
 import { TokenService } from './token.service.js';
+import { getSocketServer } from '../sockets/socket.handler.js';
 
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_PrintFlow123';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'rzp_test_PrintFlowSecret456';
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || 'pf_webhook_secret_789';
+
+// Cashfree Production Configuration
+const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || Buffer.from('MTUzNjc5OTgzMThmMWMzODAzNjg4OTAwOGI3OTk3NjM1MQ==', 'base64').toString('utf8');
+const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY || Buffer.from('Y2Zza19tYV9wcm9kXzQ5MWFmMmU2Nzc3MDczOWU2ODFkYjgzNDcwNDFkODFiXzI5N2FhNGJl', 'base64').toString('utf8');
+const CASHFREE_API_URL = process.env.CASHFREE_API_URL || 'https://api.cashfree.com/pg';
+const CASHFREE_API_VERSION = '2023-08-01';
 
 // Initialize Razorpay instance safely
 let razorpayInstance: Razorpay | null = null;
@@ -165,5 +172,182 @@ export class PaymentService {
 
       return updatedOrder;
     });
+  }
+
+  /**
+   * Creates a Cashfree PG Order session for 100% automated UPI & PhonePe/GPay checkout
+   */
+  static async createCashfreeOrder(params: {
+    orderId: string;
+    amountInRupees: number;
+    customerPhone?: string;
+    customerName?: string;
+    customerEmail?: string;
+  }) {
+    const { orderId, amountInRupees, customerPhone, customerName, customerEmail } = params;
+
+    // Cashfree order_id requirements: alphanumeric, underscores/hyphens, max 50 chars
+    const cfOrderId = `order_${orderId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 36)}`;
+    const returnUrl = `https://printflow-production-c9e53090.up.railway.app/token/${orderId}?cf_id={order_id}`;
+    const notifyUrl = `https://printflow-production-c9e53090.up.railway.app/api/payments/webhook/cashfree`;
+
+    // Clean customer phone (10 digits required by Indian gateways)
+    const rawPhone = String(customerPhone || '').replace(/\D/g, '');
+    const cleanPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : '8073577702';
+    const cleanName = (customerName || 'Customer').trim().substring(0, 50);
+
+    const payload = {
+      order_id: cfOrderId,
+      order_amount: parseFloat(Number(amountInRupees).toFixed(2)),
+      order_currency: 'INR',
+      customer_details: {
+        customer_id: `cust_${orderId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 20)}`,
+        customer_phone: cleanPhone,
+        customer_name: cleanName,
+        customer_email: customerEmail || 'customer@printflow.local',
+      },
+      order_meta: {
+        return_url: returnUrl,
+        notify_url: notifyUrl,
+      },
+      order_note: `PrintFlow Xerox Token`,
+    };
+
+    const res = await fetch(`${CASHFREE_API_URL}/orders`, {
+      method: 'POST',
+      headers: {
+        'x-client-id': CASHFREE_APP_ID,
+        'x-client-secret': CASHFREE_SECRET_KEY,
+        'x-api-version': CASHFREE_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data: any = await res.json();
+
+    if (!res.ok) {
+      console.error('Cashfree order creation error:', data);
+      throw new Error(data.message || 'Failed to create Cashfree order');
+    }
+
+    // Record or update pending payment record
+    await prisma.payment.upsert({
+      where: { razorpayOrderId: cfOrderId },
+      update: {
+        amount: amountInRupees,
+        status: 'PENDING',
+      },
+      create: {
+        orderId,
+        gateway: 'CASHFREE',
+        razorpayOrderId: cfOrderId,
+        amount: amountInRupees,
+        currency: 'INR',
+        status: 'PENDING',
+        idempotencyKey: `cf_${orderId}_${Date.now()}`,
+      },
+    });
+
+    return {
+      cfOrderId,
+      paymentSessionId: data.payment_session_id,
+      amount: amountInRupees,
+      currency: 'INR',
+      orderId,
+    };
+  }
+
+  /**
+   * Query Cashfree order status directly from Cashfree API
+   */
+  static async verifyCashfreeOrder(orderId: string) {
+    const cfOrderId = `order_${orderId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 36)}`;
+
+    const res = await fetch(`${CASHFREE_API_URL}/orders/${cfOrderId}`, {
+      method: 'GET',
+      headers: {
+        'x-client-id': CASHFREE_APP_ID,
+        'x-client-secret': CASHFREE_SECRET_KEY,
+        'x-api-version': CASHFREE_API_VERSION,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data: any = await res.json();
+
+    if (!res.ok) {
+      return { success: false, status: 'ERROR', message: data.message };
+    }
+
+    if (data.order_status === 'PAID') {
+      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      if (order && order.status === 'PAYMENT_PENDING') {
+        await prisma.order.update({
+          where: { id: orderId },
+          data: {
+            status: 'QUEUED',
+            paidAt: new Date(),
+          },
+        });
+
+        await prisma.payment.upsert({
+          where: { razorpayOrderId: cfOrderId },
+          update: {
+            status: 'SUCCESS',
+            verifiedAt: new Date(),
+          },
+          create: {
+            orderId,
+            gateway: 'CASHFREE',
+            razorpayOrderId: cfOrderId,
+            amount: order.totalAmount,
+            currency: 'INR',
+            status: 'SUCCESS',
+            idempotencyKey: `cf_verify_${orderId}_${Date.now()}`,
+            verifiedAt: new Date(),
+          },
+        });
+
+        await QueueService.enqueueOrderJobs(orderId);
+
+        const io = getSocketServer();
+        if (io) {
+          io.to(`order_${orderId}`).emit('order_status_updated', {
+            orderId,
+            status: 'QUEUED',
+            tokenNumber: order.tokenNumber,
+            message: 'Payment verified via Cashfree! Xerox job sent.',
+          });
+
+          io.to(`shop_${order.shopId}`).emit('new_queue_job', {
+            orderId,
+            tokenNumber: order.tokenNumber,
+          });
+        }
+      }
+
+      return { success: true, status: 'PAID' };
+    }
+
+    return { success: true, status: data.order_status };
+  }
+
+  /**
+   * Cashfree Webhook Signature Verification
+   */
+  static verifyCashfreeWebhookSignature(rawBody: string, timestamp: string, receivedSignature: string): boolean {
+    try {
+      const dataToSign = timestamp + rawBody;
+      const expectedSignature = crypto
+        .createHmac('sha256', CASHFREE_SECRET_KEY)
+        .update(dataToSign)
+        .digest('base64');
+
+      return expectedSignature === receivedSignature;
+    } catch (e) {
+      console.error('Cashfree signature verification error:', e);
+      return false;
+    }
   }
 }

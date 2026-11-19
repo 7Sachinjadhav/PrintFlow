@@ -60,6 +60,10 @@ export const api = {
   simulateTestPayment: (payload: any) => request<any>('/payments/simulate-test', { method: 'POST', body: JSON.stringify(payload) }),
   testSmsWebhook: (payload: { text: string; secret?: string }) =>
     request<any>('/payments/webhook/sms/test', { method: 'POST', body: JSON.stringify(payload) }),
+  createCashfreeSession: (orderId: string) =>
+    request<any>('/payments/cashfree/create-session', { method: 'POST', body: JSON.stringify({ orderId }) }),
+  verifyCashfreePayment: (orderId: string) =>
+    request<any>(`/payments/cashfree/verify/${orderId}`),
 
   // Admin Auth
   adminLogin: (credentials: any) => request<any>('/admin/login', { method: 'POST', body: JSON.stringify(credentials) }),

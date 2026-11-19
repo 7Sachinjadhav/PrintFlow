@@ -51,8 +51,39 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const [orderStatus, setOrderStatus] = useState<'PENDING' | 'WAITING_CONFIRMATION' | 'PAID' | 'FAILED'>('PENDING');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmedToken, setConfirmedToken] = useState<string | null>(null);
+  const [launchingCashfree, setLaunchingCashfree] = useState(false);
 
   const orderCreatedRef = useRef(false);
+
+  const handleCashfreePay = async () => {
+    if (!orderData?.orderId) {
+      alert('Order is still preparing. Please wait 2 seconds and try again.');
+      return;
+    }
+    setLaunchingCashfree(true);
+    setErrorMsg(null);
+    try {
+      const res = await api.createCashfreeSession(orderData.orderId);
+      if (res.data?.paymentSessionId) {
+        if (typeof (window as any).Cashfree === 'function') {
+          const cashfree = (window as any).Cashfree({ mode: 'production' });
+          cashfree.checkout({
+            paymentSessionId: res.data.paymentSessionId,
+            redirectTarget: '_self',
+          });
+        } else {
+          window.location.href = `https://payments.cashfree.com/forms/${res.data.paymentSessionId}`;
+        }
+      } else {
+        throw new Error('Failed to obtain Cashfree payment session');
+      }
+    } catch (err: any) {
+      console.error('Cashfree launch error:', err);
+      setErrorMsg(`Payment Gateway error: ${err.message}`);
+    } finally {
+      setLaunchingCashfree(false);
+    }
+  };
 
   useEffect(() => {
     if (files.length === 0 && !confirmedToken && !orderData) {
@@ -324,6 +355,44 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
             <span>Connecting to Xerox counter...</span>
           </div>
         )}
+
+        {/* OFFICIAL 100% AUTOMATED GATEWAY (Zomato-style) */}
+        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-700 rounded-2xl p-5 text-white shadow-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5 text-amber-300" /> Instant Hands-Free Print
+            </span>
+            <span className="text-xs text-emerald-100 font-semibold">Cashfree 0% Fee Gateway</span>
+          </div>
+
+          <div>
+            <div className="text-lg font-black text-white">
+              Pay via PhonePe / GPay / Paytm
+            </div>
+            <p className="text-xs text-emerald-100 mt-0.5">
+              Instant bank verification. The Xerox machine starts printing automatically in 1 second!
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={launchingCashfree || initializingOrder}
+            onClick={handleCashfreePay}
+            className="w-full py-3.5 px-5 bg-white hover:bg-emerald-50 active:scale-[0.98] text-slate-900 font-black text-sm rounded-xl shadow-md flex items-center justify-between transition disabled:opacity-60"
+          >
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <span>{launchingCashfree ? 'Opening Payment Gateway...' : 'Launch PhonePe / GPay / UPI'}</span>
+            </div>
+            {launchingCashfree ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            ) : (
+              <span className="bg-emerald-600 text-white font-mono text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1">
+                Pay ₹{totalPayable.toFixed(2)} <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </button>
+        </div>
 
         {/* 1-Tap Mobile UPI App Buttons */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">

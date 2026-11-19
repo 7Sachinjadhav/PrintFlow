@@ -24,6 +24,8 @@ export const TokenSuccessPage: React.FC = () => {
 
     async function fetchOrder() {
       try {
+        // Automatically verify Cashfree order status if returning from gateway
+        await api.verifyCashfreePayment(orderId!).catch(() => {});
         const data = await api.getOrder(orderId!);
         setOrder(data);
       } catch (err) {

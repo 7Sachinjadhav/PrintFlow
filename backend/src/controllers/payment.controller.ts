@@ -448,4 +448,150 @@ export class PaymentController {
     req.body = req.body?.text ? req.body : { text: req.body?.message || 'PhonePe: Received ₹2.00 from Rahul Kumar' };
     return PaymentController.handleSmsWebhook(req, res);
   }
+
+  /**
+   * Initialize Cashfree Payment Session for Drop checkout
+   */
+  static async createCashfreeSession(req: Request, res: Response): Promise<void> {
+    try {
+      const { orderId } = req.body;
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { customer: true },
+      });
+
+      if (!order) {
+        res.status(404).json({ success: false, error: 'Order not found' });
+        return;
+      }
+
+      const session = await PaymentService.createCashfreeOrder({
+        orderId: order.id,
+        amountInRupees: order.totalAmount,
+        customerPhone: order.customer?.phone || undefined,
+        customerName: order.customer?.name || undefined,
+        customerEmail: order.customer?.email || undefined,
+      });
+
+      res.json({
+        success: true,
+        data: session,
+      });
+    } catch (err: any) {
+      console.error('Cashfree session creation error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Verify Cashfree payment status directly
+   */
+  static async verifyCashfreePayment(req: Request, res: Response): Promise<void> {
+    try {
+      const orderId = req.params.orderId as string;
+      const result = await PaymentService.verifyCashfreeOrder(orderId);
+      res.json(result);
+    } catch (err: any) {
+      console.error('Cashfree verification error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Cashfree Server Webhook:
+   * Fires the instant money is debited/captured in Cashfree.
+   * Immediately updates order to QUEUED, notifies customer, and prints on Xerox.
+   */
+  static async handleCashfreeWebhook(req: Request, res: Response): Promise<void> {
+    try {
+      const timestamp = req.headers['x-webhook-timestamp'] as string;
+      const signature = req.headers['x-webhook-signature'] as string;
+      const body = req.body;
+
+      console.log('[Cashfree Webhook Received]:', JSON.stringify(body));
+
+      const eventType = body?.type;
+      const paymentStatus = body?.data?.payment?.payment_status;
+      const cfOrderId = body?.data?.order?.order_id;
+      const cfPaymentId = body?.data?.payment?.cf_payment_id;
+      const utr = body?.data?.payment?.bank_reference;
+
+      if (paymentStatus === 'SUCCESS' || eventType === 'PAYMENT_SUCCESS_WEBHOOK') {
+        // Find order by Cashfree order_id or DB payment record
+        let order: any = null;
+        const paymentRecord = await prisma.payment.findFirst({
+          where: { razorpayOrderId: cfOrderId },
+          include: { order: true },
+        });
+
+        if (paymentRecord) {
+          order = paymentRecord.order;
+        } else if (cfOrderId) {
+          const rawId = cfOrderId.replace(/^order_/, '');
+          order = await prisma.order.findFirst({
+            where: {
+              OR: [{ id: rawId }, { id: { startsWith: rawId } }],
+            },
+          });
+        }
+
+        if (order && order.status === 'PAYMENT_PENDING') {
+          await prisma.order.update({
+            where: { id: order.id },
+            data: {
+              status: 'QUEUED',
+              paidAt: new Date(),
+              notes: utr
+                ? (order.notes ? `${order.notes} | Cashfree UPI UTR: ${utr}` : `Cashfree UPI UTR: ${utr}`)
+                : order.notes,
+            },
+          });
+
+          await prisma.payment.upsert({
+            where: { razorpayOrderId: cfOrderId || `cf_${order.id}` },
+            update: {
+              status: 'SUCCESS',
+              razorpayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+              verifiedAt: new Date(),
+            },
+            create: {
+              orderId: order.id,
+              gateway: 'CASHFREE',
+              razorpayOrderId: cfOrderId || `cf_${order.id}`,
+              razorpayPaymentId: cfPaymentId ? String(cfPaymentId) : undefined,
+              amount: order.totalAmount,
+              currency: 'INR',
+              status: 'SUCCESS',
+              idempotencyKey: `cf_webhook_${order.id}_${Date.now()}`,
+              verifiedAt: new Date(),
+            },
+          });
+
+          await QueueService.enqueueOrderJobs(order.id);
+
+          const io = getSocketServer();
+          if (io) {
+            io.to(`order_${order.id}`).emit('order_status_updated', {
+              orderId: order.id,
+              status: 'QUEUED',
+              tokenNumber: order.tokenNumber,
+              message: 'Payment verified via Cashfree! Xerox job queued for printing.',
+            });
+
+            io.to(`shop_${order.shopId}`).emit('new_queue_job', {
+              orderId: order.id,
+              tokenNumber: order.tokenNumber,
+            });
+          }
+
+          console.log(`[Cashfree Webhook Success] Order ${order.id} automatically enqueued to Xerox printer!`);
+        }
+      }
+
+      res.json({ status: 'OK' });
+    } catch (err: any) {
+      console.error('Cashfree webhook error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  }
 }

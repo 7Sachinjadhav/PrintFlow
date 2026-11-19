@@ -40,6 +40,11 @@ router.post('/payments/submit-utr', PaymentController.submitUtrPayment);
 router.post('/payments/simulate-test', PaymentController.simulateTestPayment);
 router.post('/payments/webhook', PaymentController.handleWebhook);
 
+// Cashfree Official Gateway Routes (100% Automated Zomato Flow)
+router.post('/payments/cashfree/create-session', PaymentController.createCashfreeSession);
+router.get('/payments/cashfree/verify/:orderId', PaymentController.verifyCashfreePayment);
+router.post('/payments/webhook/cashfree', PaymentController.handleCashfreeWebhook);
+
 // Android PhonePe / GPay Notification & SMS Webhook (Hands-Free Automation)
 router.post('/payments/webhook/sms', PaymentController.handleSmsWebhook);
 router.post('/payments/webhook/sms/test', PaymentController.testSmsWebhook);
