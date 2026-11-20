@@ -156,4 +156,72 @@ export class PrinterController {
       res.status(500).json({ success: false, error: err.message });
     }
   }
+
+  /**
+   * Restore default printers (Konica 251 & Canon 240) if missing or corrupted
+   */
+  static async restoreDefaults(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const shopId = req.admin?.shopId;
+      if (!shopId) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      await prisma.printer.upsert({
+        where: { id: 'printer-konica-251' },
+        update: {
+          shopId,
+          status: 'ONLINE',
+          isEnabled: true,
+        },
+        create: {
+          id: 'printer-konica-251',
+          shopId,
+          name: 'Konica 251',
+          modelNumber: 'Konica Minolta bizhub 251',
+          ipAddress: '192.168.1.251',
+          windowsQueueName: 'EPSON L3250 Series',
+          assignedCapability: 'BOTH',
+          supportedPaperSizes: 'A4,A3,LEGAL',
+          status: 'ONLINE',
+          isDefault: true,
+          isEnabled: true,
+          routingPriority: 2,
+        },
+      });
+
+      await prisma.printer.upsert({
+        where: { id: 'printer-canon-240' },
+        update: {
+          shopId,
+          status: 'ONLINE',
+          isEnabled: true,
+        },
+        create: {
+          id: 'printer-canon-240',
+          shopId,
+          name: 'Canon 240',
+          modelNumber: 'Canon imageRUNNER 240',
+          ipAddress: '192.168.1.240',
+          windowsQueueName: 'Microsoft Print to PDF',
+          assignedCapability: 'BW',
+          supportedPaperSizes: 'A4,LEGAL',
+          status: 'ONLINE',
+          isDefault: false,
+          isEnabled: true,
+          routingPriority: 1,
+        },
+      });
+
+      const all = await prisma.printer.findMany({
+        where: { shopId },
+        orderBy: { routingPriority: 'desc' },
+      });
+
+      res.json({ success: true, message: 'Default printers successfully restored.', data: all });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }

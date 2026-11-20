@@ -17,17 +17,35 @@ import { Printer } from '../../types';
 export const PrintersPage: React.FC = () => {
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
   const [editingPrinter, setEditingPrinter] = useState<Printer | null>(null);
   const [testResult, setTestResult] = useState<string | null>(null);
 
   const fetchPrinters = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const data = await api.getPrinters();
-      setPrinters(data);
-    } catch (err) {
+      setPrinters(Array.isArray(data) ? data : []);
+    } catch (err: any) {
       console.error('Failed to load printers:', err);
+      setError(err.message || 'Could not connect to printers server');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRestoreDefaults = async () => {
+    setRestoring(true);
+    try {
+      const res = await api.restoreDefaultPrinters();
+      setPrinters(res.data || []);
+      setTestResult('Konica 251 & Canon 240 default Xerox printers successfully restored!');
+    } catch (err: any) {
+      alert(`Restore failed: ${err.message}`);
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -121,14 +139,41 @@ export const PrintersPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={fetchPrinters}
-          className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition self-start sm:self-auto"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={fetchPrinters}
+            disabled={loading}
+            className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
+          <button
+            onClick={handleRestoreDefaults}
+            disabled={restoring}
+            className="p-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl hover:bg-indigo-100 text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${restoring ? 'animate-spin' : ''}`} />
+            <span>{restoring ? 'Restoring...' : 'Restore Xerox Printers'}</span>
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between text-xs text-rose-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={fetchPrinters}
+            className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-900 rounded font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {testResult && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800">
@@ -138,104 +183,130 @@ export const PrintersPage: React.FC = () => {
       )}
 
       {/* Printer Devices Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {printers.map((printer) => (
-          <div
-            key={printer.id}
-            className={`bg-white rounded-3xl p-6 border shadow-sm transition space-y-4 ${
-              printer.isEnabled ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                    printer.assignedCapability === 'COLOR'
-                      ? 'bg-gradient-to-tr from-pink-500 to-indigo-600 text-white'
-                      : 'bg-slate-900 text-white'
-                  }`}
-                >
-                  <PrinterIcon className="w-6 h-6" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-base font-extrabold text-slate-900">{printer.name}</h2>
-                    {printer.isDefault && (
-                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">
-                        Default
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-400 font-mono mt-0.5">IP: {printer.ipAddress}</div>
-                </div>
-              </div>
-
-              <StatusBadge status={printer.status} />
-            </div>
-
-            <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Windows Queue:</span>
-                <span className="font-mono font-bold text-slate-800">
-                  {printer.windowsQueueName || 'Not Assigned'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Color Assignment:</span>
-                <span className="font-bold text-indigo-600">
-                  {printer.assignedCapability === 'BOTH'
-                    ? 'Color & Black/White'
-                    : printer.assignedCapability === 'COLOR'
-                    ? 'Color Only'
-                    : 'B&W Only'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Supported Papers:</span>
-                <span className="font-medium text-slate-700">{printer.supportedPaperSizes}</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Routing Priority:</span>
-                <span className="font-medium text-slate-700">Level {printer.routingPriority}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setEditingPrinter(printer)}
-                className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition"
-              >
-                <Settings2 className="w-3.5 h-3.5" />
-                <span>Configure</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTestPrint(printer)}
-                className="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition"
-                title="Send test page"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>Test Print</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleToggleEnable(printer)}
-                className={`p-2 rounded-xl border transition ${
-                  printer.isEnabled
-                    ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
-                    : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
-                }`}
-                title={printer.isEnabled ? 'Disable Printer' : 'Enable Printer'}
-              >
-                <Power className="w-4 h-4" />
-              </button>
-            </div>
+      {loading && printers.length === 0 ? (
+        <div className="py-20 text-center text-slate-400">
+          <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-xs font-medium">Connecting to shop photocopiers...</p>
+        </div>
+      ) : printers.length === 0 ? (
+        <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm text-center space-y-4">
+          <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto">
+            <PrinterIcon className="w-8 h-8" />
           </div>
-        ))}
-      </div>
+          <div>
+            <h3 className="text-base font-bold text-slate-900">No Printers Detected</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
+              Click below to immediately register and connect Konica 251 and Canon 240 photocopiers.
+            </p>
+          </div>
+          <button
+            onClick={handleRestoreDefaults}
+            disabled={restoring}
+            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition"
+          >
+            {restoring ? 'Connecting...' : 'Connect Konica 251 & Canon 240'}
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {printers.map((printer) => (
+            <div
+              key={printer.id}
+              className={`bg-white rounded-3xl p-6 border shadow-sm transition space-y-4 ${
+                printer.isEnabled ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
+                      printer.assignedCapability === 'COLOR'
+                        ? 'bg-gradient-to-tr from-pink-500 to-indigo-600 text-white'
+                        : 'bg-slate-900 text-white'
+                    }`}
+                  >
+                    <PrinterIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-base font-extrabold text-slate-900">{printer.name}</h2>
+                      {printer.isDefault && (
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-400 font-mono mt-0.5">IP: {printer.ipAddress}</div>
+                  </div>
+                </div>
+
+                <StatusBadge status={printer.status} />
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Windows Queue:</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {printer.windowsQueueName || 'Not Assigned'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Color Assignment:</span>
+                  <span className="font-bold text-indigo-600">
+                    {printer.assignedCapability === 'BOTH'
+                      ? 'Color & Black/White'
+                      : printer.assignedCapability === 'COLOR'
+                      ? 'Color Only'
+                      : 'B&W Only'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Supported Papers:</span>
+                  <span className="font-medium text-slate-700">{printer.supportedPaperSizes}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-slate-400">Routing Priority:</span>
+                  <span className="font-medium text-slate-700">Level {printer.routingPriority}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingPrinter(printer)}
+                  className="flex-1 py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition"
+                >
+                  <Settings2 className="w-3.5 h-3.5" />
+                  <span>Configure</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleTestPrint(printer)}
+                  className="py-2 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition"
+                  title="Send test page"
+                >
+                  <Play className="w-3.5 h-3.5" />
+                  <span>Test Print</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleEnable(printer)}
+                  className={`p-2 rounded-xl border transition ${
+                    printer.isEnabled
+                      ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
+                      : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                  }`}
+                  title={printer.isEnabled ? 'Disable Printer' : 'Enable Printer'}
+                >
+                  <Power className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Edit Printer Modal */}
       {editingPrinter && (
@@ -272,6 +343,19 @@ export const PrintersPage: React.FC = () => {
                 <span className="text-[10px] text-slate-400 mt-1 block">
                   Must match the exact queue name reported by Windows Print Spooler.
                 </span>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  <span className="text-[10px] text-slate-400 mr-1 self-center">Presets:</span>
+                  {['KONICA MINOLTA bizhub 251', 'Canon imageRUNNER 240', 'EPSON L3250 Series', 'Microsoft Print to PDF'].map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setEditingPrinter({ ...editingPrinter, windowsQueueName: name })}
+                      className="px-2 py-0.5 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded text-[10px] font-mono border border-slate-200 transition"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>

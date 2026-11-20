@@ -77,6 +77,7 @@ router.patch('/admin/orders/:orderId/status', requireAdminAuth, QueueController.
 // Printers Management
 router.get('/admin/printers', requireAdminAuth, PrinterController.getPrinters);
 router.post('/admin/printers', requireAdminAuth, PrinterController.createPrinter);
+router.post('/admin/printers/restore-defaults', requireAdminAuth, PrinterController.restoreDefaults);
 router.patch('/admin/printers/:id', requireAdminAuth, PrinterController.updatePrinter);
 router.post('/admin/printers/:id/test', requireAdminAuth, PrinterController.testPrint);
 

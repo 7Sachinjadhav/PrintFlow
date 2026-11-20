@@ -38,6 +38,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const data = await response.json();
 
   if (!response.ok) {
+    if (response.status === 401) {
+      localStorage.removeItem('printflow_admin_token');
+      localStorage.removeItem('printflow_admin_user');
+      if (window.location.pathname.startsWith('/admin') && window.location.pathname !== '/admin/login') {
+        window.location.href = '/admin/login?expired=1';
+      }
+    }
     throw new ApiError(data.error || 'API Request failed', response.status);
   }
 
@@ -91,6 +98,7 @@ export const api = {
   // Admin Printers
   getPrinters: () => request<any>('/admin/printers'),
   createPrinter: (printer: any) => request<any>('/admin/printers', { method: 'POST', body: JSON.stringify(printer) }),
+  restoreDefaultPrinters: () => request<any>('/admin/printers/restore-defaults', { method: 'POST' }),
   updatePrinter: (id: string, printer: any) => request<any>(`/admin/printers/${id}`, { method: 'PATCH', body: JSON.stringify(printer) }),
   testPrint: (id: string) => request<any>(`/admin/printers/${id}/test`, { method: 'POST' }),
 

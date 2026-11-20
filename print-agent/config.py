@@ -1,7 +1,7 @@
 import os
 
 class Config:
-    BACKEND_URL = os.environ.get("PRINTFLOW_BACKEND_URL", "http://127.0.0.1:5000")
+    BACKEND_URL = os.environ.get("PRINTFLOW_BACKEND_URL", "https://printflow-production-c9e53090.up.railway.app")
     AGENT_API_KEY = os.environ.get("PRINTFLOW_AGENT_KEY", "pf_agent_secret_win11_2026_key")
     AGENT_NAME = os.environ.get("PRINTFLOW_AGENT_NAME", "Shop-Win11-Host")
     OPERATING_SYSTEM = "Windows 11"

@@ -406,6 +406,42 @@ export const LiveQueuePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Network Copiers Connectivity Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+            <Printer className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-bold text-slate-800">Connected Shop Xerox Hardware:</div>
+            <div className="text-[11px] text-slate-400">Windows spooler & network photocopier status</div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-bold text-slate-800">Konica 251:</span>
+            <span className="text-slate-500 font-mono text-[11px]">EPSON L3250 Series (Color & B&W)</span>
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold">ONLINE</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-bold text-slate-800">Canon 240:</span>
+            <span className="text-slate-500 font-mono text-[11px]">Microsoft Print to PDF (B&W Fast)</span>
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold">ONLINE</span>
+          </div>
+
+          <a
+            href="/admin/printers"
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline ml-1"
+          >
+            Configure ➔
+          </a>
+        </div>
+      </div>
+
       {/* Auto-Print Banner when Active */}
       {autoPrintEnabled && (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between">

@@ -1,14 +1,22 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Printer, Lock, Mail, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
 import { api } from '../../services/api';
 
 export const AdminLoginPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('admin@printflow.com');
   const [password, setPassword] = useState('AdminPassword123!');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('expired')) {
+      setErrorMsg('Your admin session has expired. Please sign in again to access printers and queue.');
+    }
+  }, [location.search]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
