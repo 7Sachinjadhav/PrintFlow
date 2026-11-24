@@ -231,6 +231,39 @@ export class PaymentService {
       throw new Error(data.message || 'Failed to create Cashfree order');
     }
 
+    // Attempt to generate direct native UPI Intent links (PhonePe, GPay, Paytm, Universal UPI)
+    let upiLinks: { default?: string; phonepe?: string; gpay?: string; paytm?: string; web_url?: string } = {};
+    try {
+      const payRes = await fetch(`${CASHFREE_API_URL}/orders/sessions`, {
+        method: 'POST',
+        headers: {
+          'x-client-id': CASHFREE_APP_ID,
+          'x-client-secret': CASHFREE_SECRET_KEY,
+          'x-api-version': CASHFREE_API_VERSION,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          payment_session_id: data.payment_session_id,
+          payment_method: {
+            upi: {
+              channel: 'link',
+            },
+          },
+        }),
+      });
+
+      const payData: any = await payRes.json();
+      console.log('Cashfree Order Pay API Response:', JSON.stringify(payData));
+
+      if (payData?.data?.payload) {
+        upiLinks = payData.data.payload;
+      } else if (payData?.data?.url) {
+        upiLinks.web_url = payData.data.url;
+      }
+    } catch (err: any) {
+      console.warn('Could not generate native UPI links:', err?.message);
+    }
+
     // Record or update pending payment record
     await prisma.payment.upsert({
       where: { razorpayOrderId: cfOrderId },
@@ -255,6 +288,7 @@ export class PaymentService {
       amount: amountInRupees,
       currency: 'INR',
       orderId,
+      upiLinks,
     };
   }
 

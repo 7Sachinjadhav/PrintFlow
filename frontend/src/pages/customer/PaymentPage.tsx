@@ -69,19 +69,46 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     try {
       const res: any = await api.createCashfreeSession(orderData.orderId);
       const sessionId = res?.paymentSessionId || res?.data?.paymentSessionId;
+      const upiLinks = res?.upiLinks || res?.data?.upiLinks;
+
       if (!sessionId) {
         throw new Error(res?.error || res?.message || 'Failed to obtain Cashfree payment session');
       }
 
-      const cashfree = await load({ mode: 'production' });
-      if (!cashfree) {
-        throw new Error('Cashfree Payment Gateway could not be loaded');
+      // 1. Instant native app redirect (Opens PhonePe / GPay directly on phone)
+      if (app === 'phonepe' && upiLinks?.phonepe) {
+        window.location.href = upiLinks.phonepe;
+        setOrderStatus('WAITING_CONFIRMATION');
+        return;
       }
 
-      cashfree.checkout({
-        paymentSessionId: sessionId,
-        redirectTarget: '_modal',
-      });
+      if (app === 'gpay' && upiLinks?.gpay) {
+        window.location.href = upiLinks.gpay;
+        setOrderStatus('WAITING_CONFIRMATION');
+        return;
+      }
+
+      if (upiLinks?.default) {
+        window.location.href = upiLinks.default;
+        setOrderStatus('WAITING_CONFIRMATION');
+        return;
+      }
+
+      if (upiLinks?.web_url) {
+        window.location.href = upiLinks.web_url;
+        return;
+      }
+
+      // 2. Direct hosted page checkout (redirects within tab, zero modal hanging)
+      const cashfree = await load({ mode: 'production' });
+      if (cashfree) {
+        cashfree.checkout({
+          paymentSessionId: sessionId,
+          redirectTarget: '_self',
+        });
+      } else {
+        throw new Error('Could not open payment gateway. Please try again.');
+      }
     } catch (err: any) {
       console.error('Cashfree launch error:', err);
       setErrorMsg(`Payment Gateway error: ${err.message}`);
