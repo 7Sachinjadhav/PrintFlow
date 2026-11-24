@@ -22,7 +22,6 @@ import { StepIndicator } from '../../components/StepIndicator';
 import { api } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { UploadedFileItem, CalculatedOrderPrice } from '../../types';
-import { load } from '@cashfreepayments/cashfree-js';
 
 interface PaymentPageProps {
   files: UploadedFileItem[];
@@ -75,39 +74,28 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
         throw new Error(res?.error || res?.message || 'Failed to obtain Cashfree payment session');
       }
 
-      // 1. Instant native app redirect (Opens PhonePe / GPay directly on phone)
-      if (app === 'phonepe' && upiLinks?.phonepe) {
-        window.location.href = upiLinks.phonepe;
-        setOrderStatus('WAITING_CONFIRMATION');
-        return;
+      // 1. Direct synchronous Cashfree SDK checkout (Zero hanging, immediate redirect)
+      let cf: any = null;
+      if (typeof (window as any).Cashfree === 'function') {
+        cf = (window as any).Cashfree({ mode: 'production' });
+      } else {
+        // Wait up to 1.5 seconds if script was still initializing
+        for (let i = 0; i < 3; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          if (typeof (window as any).Cashfree === 'function') {
+            cf = (window as any).Cashfree({ mode: 'production' });
+            break;
+          }
+        }
       }
 
-      if (app === 'gpay' && upiLinks?.gpay) {
-        window.location.href = upiLinks.gpay;
-        setOrderStatus('WAITING_CONFIRMATION');
-        return;
-      }
-
-      if (upiLinks?.default) {
-        window.location.href = upiLinks.default;
-        setOrderStatus('WAITING_CONFIRMATION');
-        return;
-      }
-
-      if (upiLinks?.web_url) {
-        window.location.href = upiLinks.web_url;
-        return;
-      }
-
-      // 2. Direct hosted page checkout (redirects within tab, zero modal hanging)
-      const cashfree = await load({ mode: 'production' });
-      if (cashfree) {
-        cashfree.checkout({
+      if (cf && typeof cf.checkout === 'function') {
+        cf.checkout({
           paymentSessionId: sessionId,
           redirectTarget: '_self',
         });
       } else {
-        throw new Error('Could not open payment gateway. Please try again.');
+        throw new Error('Cashfree gateway is initializing. Please tap again in a moment.');
       }
     } catch (err: any) {
       console.error('Cashfree launch error:', err);
