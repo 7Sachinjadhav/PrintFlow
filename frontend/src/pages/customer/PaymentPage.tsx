@@ -22,6 +22,7 @@ import { StepIndicator } from '../../components/StepIndicator';
 import { api } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { UploadedFileItem, CalculatedOrderPrice } from '../../types';
+import { load } from '@cashfreepayments/cashfree-js';
 
 interface PaymentPageProps {
   files: UploadedFileItem[];
@@ -68,32 +69,19 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     try {
       const res: any = await api.createCashfreeSession(orderData.orderId);
       const sessionId = res?.paymentSessionId || res?.data?.paymentSessionId;
-      if (sessionId) {
-        if (typeof (window as any).Cashfree === 'function') {
-          const cashfree = (window as any).Cashfree({ mode: 'production' });
-          cashfree.checkout({
-            paymentSessionId: sessionId,
-            redirectTarget: '_self',
-          });
-        } else {
-          // Dynamic fallback loader if script was delayed
-          const script = document.createElement('script');
-          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
-          script.onload = () => {
-            const cashfree = (window as any).Cashfree({ mode: 'production' });
-            cashfree.checkout({
-              paymentSessionId: sessionId,
-              redirectTarget: '_self',
-            });
-          };
-          script.onerror = () => {
-            window.location.href = `https://payments.cashfree.com/forms/${sessionId}`;
-          };
-          document.head.appendChild(script);
-        }
-      } else {
+      if (!sessionId) {
         throw new Error(res?.error || res?.message || 'Failed to obtain Cashfree payment session');
       }
+
+      const cashfree = await load({ mode: 'production' });
+      if (!cashfree) {
+        throw new Error('Cashfree Payment Gateway could not be loaded');
+      }
+
+      cashfree.checkout({
+        paymentSessionId: sessionId,
+        redirectTarget: '_modal',
+      });
     } catch (err: any) {
       console.error('Cashfree launch error:', err);
       setErrorMsg(`Payment Gateway error: ${err.message}`);
