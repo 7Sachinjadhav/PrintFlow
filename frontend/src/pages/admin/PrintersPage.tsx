@@ -27,7 +27,12 @@ export const PrintersPage: React.FC = () => {
     setError(null);
     try {
       const data = await api.getPrinters();
-      setPrinters(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setPrinters(list);
+      // Auto-restore defaults if shop has no printers configured yet
+      if (list.length === 0) {
+        handleRestoreDefaults();
+      }
     } catch (err: any) {
       console.error('Failed to load printers:', err);
       setError(err.message || 'Could not connect to printers server');
@@ -212,18 +217,16 @@ export const PrintersPage: React.FC = () => {
           {printers.map((printer) => (
             <div
               key={printer.id}
-              className={`bg-white rounded-3xl p-6 border shadow-sm transition space-y-4 ${
-                printer.isEnabled ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
-              }`}
+              className={`bg-white rounded-3xl p-6 border shadow-sm transition space-y-4 ${printer.isEnabled ? 'border-slate-200' : 'border-slate-200 opacity-60 bg-slate-50'
+                }`}
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                      printer.assignedCapability === 'COLOR'
+                    className={`w-12 h-12 rounded-2xl flex items-center justify-center ${printer.assignedCapability === 'COLOR'
                         ? 'bg-gradient-to-tr from-pink-500 to-indigo-600 text-white'
                         : 'bg-slate-900 text-white'
-                    }`}
+                      }`}
                   >
                     <PrinterIcon className="w-6 h-6" />
                   </div>
@@ -256,8 +259,8 @@ export const PrintersPage: React.FC = () => {
                     {printer.assignedCapability === 'BOTH'
                       ? 'Color & Black/White'
                       : printer.assignedCapability === 'COLOR'
-                      ? 'Color Only'
-                      : 'B&W Only'}
+                        ? 'Color Only'
+                        : 'B&W Only'}
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
@@ -293,11 +296,10 @@ export const PrintersPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleToggleEnable(printer)}
-                  className={`p-2 rounded-xl border transition ${
-                    printer.isEnabled
+                  className={`p-2 rounded-xl border transition ${printer.isEnabled
                       ? 'text-rose-600 border-rose-200 hover:bg-rose-50'
                       : 'text-emerald-600 border-emerald-200 hover:bg-emerald-50'
-                  }`}
+                    }`}
                   title={printer.isEnabled ? 'Disable Printer' : 'Enable Printer'}
                 >
                   <Power className="w-4 h-4" />

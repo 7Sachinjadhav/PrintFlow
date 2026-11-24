@@ -510,13 +510,46 @@ export class PaymentController {
 
       console.log('[Cashfree Webhook Received]:', JSON.stringify(body));
 
-      const eventType = body?.type;
-      const paymentStatus = body?.data?.payment?.payment_status;
-      const cfOrderId = body?.data?.order?.order_id;
-      const cfPaymentId = body?.data?.payment?.cf_payment_id;
-      const utr = body?.data?.payment?.bank_reference;
+      // 1. Immediately handle Cashfree Test Webhook ping from merchant dashboard
+      if (
+        !body ||
+        body?.type === 'TEST' ||
+        body?.event === 'TEST' ||
+        body?.test === true ||
+        Object.keys(body).length === 0
+      ) {
+        console.log('[Cashfree Webhook Test]: Received and acknowledged test ping.');
+        res.status(200).json({ status: 'OK', message: 'Cashfree test webhook received successfully' });
+        return;
+      }
 
-      if (paymentStatus === 'SUCCESS' || eventType === 'PAYMENT_SUCCESS_WEBHOOK') {
+      const eventType = body?.type || body?.event;
+      const paymentStatus =
+        body?.data?.payment?.payment_status ||
+        body?.data?.order?.order_status ||
+        body?.payment_status ||
+        body?.order_status;
+      const cfOrderId =
+        body?.data?.order?.order_id ||
+        body?.order_id ||
+        body?.data?.order_id;
+      const cfPaymentId =
+        body?.data?.payment?.cf_payment_id ||
+        body?.cf_payment_id ||
+        body?.payment_id;
+      const utr =
+        body?.data?.payment?.bank_reference ||
+        body?.bank_reference ||
+        body?.data?.payment?.payment_method?.upi?.channel;
+
+      const isSuccess =
+        paymentStatus === 'SUCCESS' ||
+        paymentStatus === 'PAID' ||
+        eventType === 'PAYMENT_SUCCESS_WEBHOOK' ||
+        eventType === 'ORDER_PAID' ||
+        eventType === 'PAYMENT.SUCCESS';
+
+      if (isSuccess && cfOrderId) {
         // Find order by Cashfree order_id or DB payment record
         let order: any = null;
         const paymentRecord = await prisma.payment.findFirst({
@@ -524,13 +557,17 @@ export class PaymentController {
           include: { order: true },
         });
 
-        if (paymentRecord) {
+        if (paymentRecord && paymentRecord.order) {
           order = paymentRecord.order;
-        } else if (cfOrderId) {
+        } else {
           const rawId = cfOrderId.replace(/^order_/, '');
           order = await prisma.order.findFirst({
             where: {
-              OR: [{ id: rawId }, { id: { startsWith: rawId } }],
+              OR: [
+                { id: rawId },
+                { id: { startsWith: rawId } },
+                { id: cfOrderId },
+              ],
             },
           });
         }
@@ -584,14 +621,15 @@ export class PaymentController {
             });
           }
 
-          console.log(`[Cashfree Webhook Success] Order ${order.id} automatically enqueued to Xerox printer!`);
+          console.log(`[Cashfree Webhook Success] Order ${order.id} (${order.tokenNumber}) automatically enqueued to Xerox printer!`);
         }
       }
 
-      res.json({ status: 'OK' });
+      // Cashfree requires HTTP 200 within 5s
+      res.status(200).json({ status: 'OK' });
     } catch (err: any) {
       console.error('Cashfree webhook error:', err);
-      res.status(500).json({ error: err.message });
+      res.status(200).json({ status: 'OK', error: err.message });
     }
   }
 }

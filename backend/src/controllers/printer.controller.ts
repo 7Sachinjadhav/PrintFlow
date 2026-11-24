@@ -9,10 +9,14 @@ export class PrinterController {
    */
   static async getPrinters(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const shopId = req.admin?.shopId;
+      let shopId = req.admin?.shopId;
+      if (!shopId) {
+        const defaultShop = await prisma.shop.findFirst();
+        shopId = defaultShop?.id;
+      }
 
-      const printers = await prisma.printer.findMany({
-        where: { shopId },
+      let printers = await prisma.printer.findMany({
+        where: shopId ? { shopId } : undefined,
         include: {
           capabilities: true,
           _count: {
@@ -25,6 +29,62 @@ export class PrinterController {
         },
         orderBy: { routingPriority: 'desc' },
       });
+
+      // AUTO-SEED: If 0 printers exist in DB, immediately initialize Konica 251 and Canon 240
+      if (printers.length === 0 && shopId) {
+        await prisma.printer.upsert({
+          where: { id: 'printer-konica-251' },
+          update: { shopId, status: 'ONLINE', isEnabled: true },
+          create: {
+            id: 'printer-konica-251',
+            shopId,
+            name: 'Konica 251',
+            modelNumber: 'Konica Minolta bizhub 251',
+            ipAddress: '192.168.1.251',
+            windowsQueueName: 'EPSON L3250 Series',
+            assignedCapability: 'BOTH',
+            supportedPaperSizes: 'A4,A3,LEGAL',
+            status: 'ONLINE',
+            isDefault: true,
+            isEnabled: true,
+            routingPriority: 2,
+          },
+        });
+
+        await prisma.printer.upsert({
+          where: { id: 'printer-canon-240' },
+          update: { shopId, status: 'ONLINE', isEnabled: true },
+          create: {
+            id: 'printer-canon-240',
+            shopId,
+            name: 'Canon 240',
+            modelNumber: 'Canon imageRUNNER 240',
+            ipAddress: '192.168.1.240',
+            windowsQueueName: 'Microsoft Print to PDF',
+            assignedCapability: 'BW',
+            supportedPaperSizes: 'A4,LEGAL',
+            status: 'ONLINE',
+            isDefault: false,
+            isEnabled: true,
+            routingPriority: 1,
+          },
+        });
+
+        printers = await prisma.printer.findMany({
+          where: { shopId },
+          include: {
+            capabilities: true,
+            _count: {
+              select: {
+                printJobs: {
+                  where: { status: { in: ['ASSIGNED', 'PRINTING', 'LEASED'] } },
+                },
+              },
+            },
+          },
+          orderBy: { routingPriority: 'desc' },
+        });
+      }
 
       res.json({
         success: true,

@@ -72,7 +72,20 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
             redirectTarget: '_self',
           });
         } else {
-          window.location.href = `https://payments.cashfree.com/forms/${res.data.paymentSessionId}`;
+          // Dynamic fallback loader if script was delayed
+          const script = document.createElement('script');
+          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+          script.onload = () => {
+            const cashfree = (window as any).Cashfree({ mode: 'production' });
+            cashfree.checkout({
+              paymentSessionId: res.data.paymentSessionId,
+              redirectTarget: '_self',
+            });
+          };
+          script.onerror = () => {
+            window.location.href = `https://payments.cashfree.com/forms/${res.data.paymentSessionId}`;
+          };
+          document.head.appendChild(script);
         }
       } else {
         throw new Error('Failed to obtain Cashfree payment session');

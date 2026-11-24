@@ -44,6 +44,11 @@ router.post('/payments/webhook', PaymentController.handleWebhook);
 router.post('/payments/cashfree/create-session', PaymentController.createCashfreeSession);
 router.get('/payments/cashfree/verify/:orderId', PaymentController.verifyCashfreePayment);
 router.post('/payments/webhook/cashfree', PaymentController.handleCashfreeWebhook);
+router.post('/payments/webhook/cas', PaymentController.handleCashfreeWebhook);
+router.post('/payments/cashfree/webhook', PaymentController.handleCashfreeWebhook);
+router.get('/payments/webhook/cashfree', (req, res) => res.json({ status: 'ACTIVE', gateway: 'Cashfree', timestamp: new Date().toISOString() }));
+router.get('/payments/webhook/cas', (req, res) => res.json({ status: 'ACTIVE', gateway: 'Cashfree', timestamp: new Date().toISOString() }));
+router.get('/payments/cashfree/webhook', (req, res) => res.json({ status: 'ACTIVE', gateway: 'Cashfree', timestamp: new Date().toISOString() }));
 
 // Android PhonePe / GPay Notification & SMS Webhook (Hands-Free Automation)
 router.post('/payments/webhook/sms', PaymentController.handleSmsWebhook);

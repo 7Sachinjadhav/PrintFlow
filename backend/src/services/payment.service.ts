@@ -262,7 +262,10 @@ export class PaymentService {
    * Query Cashfree order status directly from Cashfree API
    */
   static async verifyCashfreeOrder(orderId: string) {
-    const cfOrderId = `order_${orderId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 36)}`;
+    const cleanOrderId = orderId.replace(/^order_/, '');
+    const cfOrderId = orderId.startsWith('order_')
+      ? orderId
+      : `order_${orderId.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 36)}`;
 
     const res = await fetch(`${CASHFREE_API_URL}/orders/${cfOrderId}`, {
       method: 'GET',
@@ -281,10 +284,17 @@ export class PaymentService {
     }
 
     if (data.order_status === 'PAID') {
-      const order = await prisma.order.findUnique({ where: { id: orderId } });
+      const order = await prisma.order.findFirst({
+        where: {
+          OR: [
+            { id: cleanOrderId },
+            { id: orderId }
+          ]
+        }
+      });
       if (order && order.status === 'PAYMENT_PENDING') {
         await prisma.order.update({
-          where: { id: orderId },
+          where: { id: order.id },
           data: {
             status: 'QUEUED',
             paidAt: new Date(),
@@ -298,30 +308,30 @@ export class PaymentService {
             verifiedAt: new Date(),
           },
           create: {
-            orderId,
+            orderId: order.id,
             gateway: 'CASHFREE',
             razorpayOrderId: cfOrderId,
             amount: order.totalAmount,
             currency: 'INR',
             status: 'SUCCESS',
-            idempotencyKey: `cf_verify_${orderId}_${Date.now()}`,
+            idempotencyKey: `cf_verify_${order.id}_${Date.now()}`,
             verifiedAt: new Date(),
           },
         });
 
-        await QueueService.enqueueOrderJobs(orderId);
+        await QueueService.enqueueOrderJobs(order.id);
 
         const io = getSocketServer();
         if (io) {
-          io.to(`order_${orderId}`).emit('order_status_updated', {
-            orderId,
+          io.to(`order_${order.id}`).emit('order_status_updated', {
+            orderId: order.id,
             status: 'QUEUED',
             tokenNumber: order.tokenNumber,
             message: 'Payment verified via Cashfree! Xerox job sent.',
           });
 
           io.to(`shop_${order.shopId}`).emit('new_queue_job', {
-            orderId,
+            orderId: order.id,
             tokenNumber: order.tokenNumber,
           });
         }
