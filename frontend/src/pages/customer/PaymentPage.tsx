@@ -52,15 +52,18 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [confirmedToken, setConfirmedToken] = useState<string | null>(null);
   const [launchingCashfree, setLaunchingCashfree] = useState(false);
+  const [selectedApp, setSelectedApp] = useState<string | null>(null);
+  const [showManualUpi, setShowManualUpi] = useState(false);
 
   const orderCreatedRef = useRef(false);
 
-  const handleCashfreePay = async () => {
+  const handleCashfreePay = async (app?: string) => {
     if (!orderData?.orderId) {
       alert('Order is still preparing. Please wait 2 seconds and try again.');
       return;
     }
     setLaunchingCashfree(true);
+    setSelectedApp(app || 'gateway');
     setErrorMsg(null);
     try {
       const res = await api.createCashfreeSession(orderData.orderId);
@@ -95,6 +98,7 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
       setErrorMsg(`Payment Gateway error: ${err.message}`);
     } finally {
       setLaunchingCashfree(false);
+      setSelectedApp(null);
     }
   };
 
@@ -342,9 +346,9 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
         {/* Amount Summary Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-5 text-white shadow-lg space-y-3">
           <div className="flex justify-between items-center text-xs text-indigo-200">
-            <span>Payee: <strong className="text-white">{UPI_NAME}</strong></span>
+            <span>Payee: <strong className="text-white">PrintFlow Xerox Shop</strong></span>
             <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1">
-              <Lock className="w-3 h-3" /> Direct Bank Credit
+              <ShieldCheck className="w-3 h-3" /> Official Cashfree Gateway
             </span>
           </div>
 
@@ -354,8 +358,8 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
               <div className="text-3xl font-black tracking-tight text-white">₹{totalPayable.toFixed(2)}</div>
             </div>
             <div className="text-right text-xs text-indigo-200 font-medium">
-              <div>VPA: <span className="font-mono text-white">{UPI_ID}</span></div>
-              <div className="text-[11px] text-emerald-400 font-bold mt-0.5">
+              <div>Mode: <span className="text-emerald-400 font-bold">Auto-Print</span></div>
+              <div className="text-[11px] text-indigo-300 font-bold mt-0.5">
                 {orderData?.tokenNumber ? `Reserved Token: ${orderData.tokenNumber}` : 'Preparing Order...'}
               </div>
             </div>
@@ -369,138 +373,140 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           </div>
         )}
 
-        {/* OFFICIAL 100% AUTOMATED GATEWAY (Zomato-style) */}
-        <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-700 rounded-2xl p-5 text-white shadow-lg space-y-3">
+        {/* OFFICIAL 1-TAP GATEWAY PAYMENT APPS (Cashfree Verified Merchant) */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-              <Zap className="w-3.5 h-3.5 text-amber-300" /> Instant Hands-Free Print
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-amber-500" /> Choose Payment App (Instant Auto-Print):
             </span>
-            <span className="text-xs text-emerald-100 font-semibold">Cashfree 0% Fee Gateway</span>
+            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+              No Bank Limits
+            </span>
           </div>
 
-          <div>
-            <div className="text-lg font-black text-white">
-              Pay via PhonePe / GPay / Paytm
-            </div>
-            <p className="text-xs text-emerald-100 mt-0.5">
-              Instant bank verification. The Xerox machine starts printing automatically in 1 second!
-            </p>
-          </div>
-
+          {/* 1. PhonePe Button (Cashfree Merchant Flow) */}
           <button
             type="button"
             disabled={launchingCashfree || initializingOrder}
-            onClick={handleCashfreePay}
-            className="w-full py-3.5 px-5 bg-white hover:bg-emerald-50 active:scale-[0.98] text-slate-900 font-black text-sm rounded-xl shadow-md flex items-center justify-between transition disabled:opacity-60"
+            onClick={() => handleCashfreePay('phonepe')}
+            className="w-full p-4 rounded-xl border-2 border-purple-300 bg-purple-50/70 hover:bg-purple-100 active:scale-[0.98] flex items-center justify-between transition group shadow-sm disabled:opacity-60 text-left"
           >
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              <span>{launchingCashfree ? 'Opening Payment Gateway...' : 'Launch PhonePe / GPay / UPI'}</span>
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-[#5f259f] text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0">
+                पे
+              </div>
+              <div>
+                <div className="text-sm font-black text-slate-900 flex items-center gap-1.5">
+                  <span>PhonePe</span>
+                  <span className="text-[10px] font-bold text-[#5f259f] bg-purple-100 px-1.5 py-0.5 rounded">Recommended</span>
+                </div>
+                <div className="text-[11px] text-slate-500 font-medium">
+                  {launchingCashfree && selectedApp === 'phonepe'
+                    ? 'Connecting to PhonePe via Cashfree Gateway...'
+                    : '1-tap UPI payment • Xerox prints automatically'}
+                </div>
+              </div>
             </div>
-            {launchingCashfree ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            {launchingCashfree && selectedApp === 'phonepe' ? (
+              <Loader2 className="w-5 h-5 animate-spin text-[#5f259f]" />
             ) : (
-              <span className="bg-emerald-600 text-white font-mono text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1">
+              <span className="text-xs font-bold text-[#5f259f] bg-purple-100/80 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
+                Pay ₹{totalPayable.toFixed(2)} <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </button>
+
+          {/* 2. Google Pay (GPay) Button (Cashfree Merchant Flow) */}
+          <button
+            type="button"
+            disabled={launchingCashfree || initializingOrder}
+            onClick={() => handleCashfreePay('gpay')}
+            className="w-full p-4 rounded-xl border-2 border-blue-300 bg-blue-50/70 hover:bg-blue-100 active:scale-[0.98] flex items-center justify-between transition group shadow-sm disabled:opacity-60 text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-blue-600 text-lg shadow-md shrink-0">
+                G<span className="text-emerald-500">P</span>
+              </div>
+              <div>
+                <div className="text-sm font-black text-slate-900">Google Pay (GPay)</div>
+                <div className="text-[11px] text-slate-500 font-medium">
+                  {launchingCashfree && selectedApp === 'gpay'
+                    ? 'Connecting to Google Pay...'
+                    : 'Fast & secure UPI via Google Pay'}
+                </div>
+              </div>
+            </div>
+            {launchingCashfree && selectedApp === 'gpay' ? (
+              <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+            ) : (
+              <span className="text-xs font-bold text-blue-600 bg-blue-100/80 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
+                Pay ₹{totalPayable.toFixed(2)} <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            )}
+          </button>
+
+          {/* 3. Paytm / Cred / Other UPI Button */}
+          <button
+            type="button"
+            disabled={launchingCashfree || initializingOrder}
+            onClick={() => handleCashfreePay('other')}
+            className="w-full p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] flex items-center justify-between transition group disabled:opacity-60 text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0">
+                <QrCode className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-slate-900">Paytm / QR / Cards / Other UPI</div>
+                <div className="text-[10px] text-slate-500">Scan QR, BHIM, Paytm, or NetBanking</div>
+              </div>
+            </div>
+            {launchingCashfree && selectedApp === 'other' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+            ) : (
+              <span className="text-xs font-bold text-slate-700 bg-slate-200/60 px-2.5 py-1 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
                 Pay ₹{totalPayable.toFixed(2)} <ArrowRight className="w-3.5 h-3.5" />
               </span>
             )}
           </button>
         </div>
 
-        {/* 1-Tap Mobile UPI App Buttons */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-3">
-          <div className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
-            <span>Tap your preferred UPI app to pay ₹{totalPayable.toFixed(2)}:</span>
-          </div>
-
-          {/* 1. PhonePe Button */}
-          <a
-            href={phonePeLink}
-            onClick={handleLaunchApp}
-            className="w-full p-4 rounded-xl border-2 border-purple-300 bg-purple-50/70 hover:bg-purple-100 active:scale-[0.98] flex items-center justify-between transition group shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-[#5f259f] text-white flex items-center justify-center font-bold text-xl shadow-md">
-                पे
-              </div>
-              <div className="text-left">
-                <div className="text-sm font-black text-slate-900">PhonePe</div>
-                <div className="text-[11px] text-slate-500 font-medium">Opens PhonePe directly with ₹{totalPayable.toFixed(2)}</div>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-[#5f259f] bg-purple-100/80 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
-              Pay Now <ExternalLink className="w-3.5 h-3.5" />
-            </span>
-          </a>
-
-          {/* 2. Google Pay Button */}
-          <a
-            href={gPayLink}
-            onClick={handleLaunchApp}
-            className="w-full p-4 rounded-xl border-2 border-blue-300 bg-blue-50/70 hover:bg-blue-100 active:scale-[0.98] flex items-center justify-between transition group shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-white border border-slate-200 flex items-center justify-center font-black text-blue-600 text-lg shadow-md">
-                G<span className="text-emerald-500">P</span>
-              </div>
-              <div className="text-left">
-                <div className="text-sm font-black text-slate-900">Google Pay (GPay)</div>
-                <div className="text-[11px] text-slate-500 font-medium">Opens Google Pay directly with ₹{totalPayable.toFixed(2)}</div>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-blue-600 bg-blue-100/80 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
-              Pay Now <ExternalLink className="w-3.5 h-3.5" />
-            </span>
-          </a>
-
-          {/* 3. Universal UPI App */}
-          <a
-            href={universalUpiLink}
-            onClick={handleLaunchApp}
-            className="w-full p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:scale-[0.98] flex items-center justify-between transition group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
-                <QrCode className="w-5 h-5" />
-              </div>
-              <div className="text-left">
-                <div className="text-xs font-bold text-slate-900">Paytm / Cred / Other UPI</div>
-                <div className="text-[10px] text-slate-500">Choose from all installed UPI apps</div>
-              </div>
-            </div>
-            <span className="text-xs font-bold text-slate-700 bg-slate-200/60 px-2.5 py-1 rounded-lg flex items-center gap-1 group-hover:translate-x-0.5 transition">
-              Open UPI <ExternalLink className="w-3.5 h-3.5" />
-            </span>
-          </a>
-        </div>
-
-        {/* QR Scanner for Desktop */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm text-center space-y-3">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
-            Or Scan with PhonePe / GPay Camera:
-          </div>
-
-          <div className="flex flex-col items-center justify-center py-1">
-            <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-indigo-200 shadow-md inline-block">
-              <img
-                src={dynamicQrUrl}
-                alt="Scan to Pay UPI QR"
-                className="w-44 h-44 object-contain rounded-lg"
-              />
-            </div>
-            <div className="mt-2 text-xs font-bold text-slate-800">
-              Scan & pay <span className="text-indigo-600 font-black">₹{totalPayable.toFixed(2)}</span>
-            </div>
-            <div className="text-[10px] text-slate-400 font-mono">
-              VPA: {UPI_ID} • Payee: {UPI_NAME}
-            </div>
-          </div>
-        </div>
-
         {/* Security badge */}
         <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-center gap-2 text-xs text-slate-500">
           <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Zero False Orders Guarantee • Direct Bank Transfer to Sachin S Jadhav</span>
+          <span>Cashfree Official Merchant Gateway • NPCI 100% Verified • No Bank Limits</span>
+        </div>
+
+        {/* Optional Manual Counter UPI Backup (Collapsed) */}
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setShowManualUpi(!showManualUpi)}
+            className="text-[11px] text-slate-400 hover:text-slate-600 font-medium underline flex items-center justify-center gap-1 mx-auto"
+          >
+            <span>{showManualUpi ? 'Hide manual shop transfer' : 'Having issues with your bank? Pay manually to shopkeeper VPA'}</span>
+          </button>
+
+          {showManualUpi && (
+            <div className="mt-3 bg-white rounded-2xl p-4 border border-amber-200 shadow-sm text-center space-y-3">
+              <div className="text-xs font-bold text-amber-800">
+                Direct Counter UPI (Requires Shopkeeper Manual Confirmation)
+              </div>
+              <div className="p-2 bg-white rounded-xl border border-dashed border-slate-300 inline-block">
+                <img
+                  src={dynamicQrUrl}
+                  alt="Shopkeeper QR"
+                  className="w-36 h-36 object-contain rounded"
+                />
+              </div>
+              <div className="text-xs font-mono text-slate-600">
+                VPA: {UPI_ID} • {UPI_NAME}
+              </div>
+              <p className="text-[10px] text-slate-400 max-w-xs mx-auto">
+                Note: Direct transfers to personal UPI may hit bank limits if paying from the same account. Use the buttons above for automatic printing.
+              </p>
+            </div>
+          )}
         </div>
       </main>
     </div>
