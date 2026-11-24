@@ -66,12 +66,13 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
     setSelectedApp(app || 'gateway');
     setErrorMsg(null);
     try {
-      const res = await api.createCashfreeSession(orderData.orderId);
-      if (res.data?.paymentSessionId) {
+      const res: any = await api.createCashfreeSession(orderData.orderId);
+      const sessionId = res?.paymentSessionId || res?.data?.paymentSessionId;
+      if (sessionId) {
         if (typeof (window as any).Cashfree === 'function') {
           const cashfree = (window as any).Cashfree({ mode: 'production' });
           cashfree.checkout({
-            paymentSessionId: res.data.paymentSessionId,
+            paymentSessionId: sessionId,
             redirectTarget: '_self',
           });
         } else {
@@ -81,17 +82,17 @@ export const PaymentPage: React.FC<PaymentPageProps> = ({
           script.onload = () => {
             const cashfree = (window as any).Cashfree({ mode: 'production' });
             cashfree.checkout({
-              paymentSessionId: res.data.paymentSessionId,
+              paymentSessionId: sessionId,
               redirectTarget: '_self',
             });
           };
           script.onerror = () => {
-            window.location.href = `https://payments.cashfree.com/forms/${res.data.paymentSessionId}`;
+            window.location.href = `https://payments.cashfree.com/forms/${sessionId}`;
           };
           document.head.appendChild(script);
         }
       } else {
-        throw new Error('Failed to obtain Cashfree payment session');
+        throw new Error(res?.error || res?.message || 'Failed to obtain Cashfree payment session');
       }
     } catch (err: any) {
       console.error('Cashfree launch error:', err);
